@@ -1,0 +1,26 @@
+{
+  "name": "memecoin-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pump.fun market observer, wallet intelligence and (later) narrative-driven coin launcher",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "observe": "node --disable-warning=ExperimentalWarning src/cli/observe.ts",
+    "report": "node --disable-warning=ExperimentalWarning src/cli/report.ts",
+    "inspect": "node --disable-warning=ExperimentalWarning src/cli/inspect.ts",
+    "update-idl": "node src/cli/updateIdl.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/web3.js": "^1.98.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+*.keypair.json
+keys/
+.DS_Store
