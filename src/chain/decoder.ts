@@ -17,6 +17,8 @@ export const ammAccountCoder = coders[PUMP_AMM_PROGRAM]!.accounts;
 /** A `Program data:` line attributed to the program that was executing when it was logged. */
 export interface ProgramData {
   program: string;
+  /** The top-level program of the instruction that led here: a router, a bot program or the program itself. */
+  entry: string;
   data: string;
 }
 
@@ -31,7 +33,7 @@ export function extractProgramData(logs: string[]): { items: ProgramData[]; trun
   for (const line of logs) {
     if (line.startsWith('Program data: ')) {
       const program = stack[stack.length - 1];
-      if (program) items.push({ program, data: line.slice(14) });
+      if (program) items.push({ program, entry: stack[0]!, data: line.slice(14) });
       continue;
     }
     if (line === 'Log truncated') {
@@ -114,6 +116,7 @@ function decodePump(name: string, d: Fields, sig: string, slot: number): Decoded
         quoteAmount: (isBuy ? gross + fees : Math.max(0, gross - fees)) / qd,
         coinAmount: coinRaw / 10 ** COIN_DECIMALS,
         price,
+        creatorFee: n(d.creator_fee) / qd,
       };
     }
     case 'CompleteEvent':
@@ -158,6 +161,7 @@ function decodeAmm(name: string, d: Fields, sig: string, slot: number): DecodedE
         baseAmountRaw: n(d.base_amount_out),
         quoteAmountRaw: n(d.user_quote_amount_in),
         quoteAmountNoFeeRaw: n(d.quote_amount_in),
+        creatorFeeRaw: n(d.coin_creator_fee),
       };
     case 'SellEvent':
       return {
@@ -171,6 +175,7 @@ function decodeAmm(name: string, d: Fields, sig: string, slot: number): DecodedE
         baseAmountRaw: n(d.base_amount_in),
         quoteAmountRaw: n(d.user_quote_amount_out),
         quoteAmountNoFeeRaw: n(d.quote_amount_out),
+        creatorFeeRaw: n(d.coin_creator_fee),
       };
     default:
       return null;
@@ -231,7 +236,11 @@ export function decodeTx(
       item.program === PUMP_PROGRAM
         ? decodePump(ev.name, ev.data, tx.sig, tx.slot)
         : decodeAmm(ev.name, ev.data, tx.sig, tx.slot);
-    if (out) events.push(out);
+    if (!out) continue;
+    // A trade made through another program (a router, a trading bot's program, the Mayhem agent) names that
+    // program's account as the trader, not the wallet that signed.
+    if ((out.kind === 'trade' || out.kind === 'pool_trade') && item.entry !== item.program) out.via = item.entry;
+    events.push(out);
   }
   return { events, truncated };
 }

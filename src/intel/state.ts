@@ -24,7 +24,10 @@ export interface CoinState {
   name: string | null;
   symbol: string | null;
   uri: string | null;
+  /** Fee recipient named at launch. */
   creator: string | null;
+  /** Wallet that signed the launch and made any dev buy; on some launches it is not the creator. */
+  launcher: string | null;
   quote: string;
   /** Null for coins launched before the observer saw them. */
   createdTs: number | null;
@@ -40,6 +43,8 @@ export interface CoinState {
   /** Buyers whose first buy landed within seconds of launch: snipers and bundled launch buys. */
   earlyBuyers: number;
   volumeSol: number;
+  /** Creator fees paid by traders, in SOL. Coins recorded before fee capture show 0. */
+  creatorFeesSol: number;
   lastPriceSol: number | null;
   lastMcapSol: number | null;
   peakMcapSol: number;
@@ -132,6 +137,7 @@ export function newCoin(mint: string, quote: string): CoinState {
     symbol: null,
     uri: null,
     creator: null,
+    launcher: null,
     quote,
     createdTs: null,
     createSig: null,
@@ -145,6 +151,7 @@ export function newCoin(mint: string, quote: string): CoinState {
     uniqueBuyers: 0,
     earlyBuyers: 0,
     volumeSol: 0,
+    creatorFeesSol: 0,
     lastPriceSol: null,
     lastMcapSol: null,
     peakMcapSol: 0,
@@ -174,6 +181,7 @@ export function coinFromRow(r: Record<string, any>): CoinState {
     symbol: r.symbol,
     uri: r.uri,
     creator: r.creator,
+    launcher: r.launcher ?? null,
     createdTs: r.created_ts,
     createSig: r.create_sig,
     totalSupply: r.total_supply,
@@ -186,6 +194,7 @@ export function coinFromRow(r: Record<string, any>): CoinState {
     uniqueBuyers: r.unique_buyers,
     earlyBuyers: r.early_buyers,
     volumeSol: r.volume_sol,
+    creatorFeesSol: r.creator_fees_sol ?? 0,
     lastPriceSol: r.last_price_sol,
     lastMcapSol: r.last_mcap_sol,
     peakMcapSol: r.peak_mcap_sol,

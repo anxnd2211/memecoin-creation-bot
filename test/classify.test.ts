@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { MAYHEM_AGENT } from '../src/chain/programs.ts';
 import { bestWindow, classify, isSmartMoney, medianHoldSec, tradesPerDay } from '../src/intel/classify.ts';
 import { HOLD_BUCKETS, newWallet } from '../src/intel/state.ts';
 
@@ -76,4 +77,11 @@ test('smart money excludes snipers and bots even when profitable', () => {
   assert.equal(isSmartMoney(['top_performer', 'flipper', 'sniper', 'serial_creator']), false);
   assert.equal(isSmartMoney(['whale', 'bot_like']), false);
   assert.equal(isSmartMoney(['flipper']), false);
+});
+
+test("pump.fun's Mayhem agent is labelled as such, never as a trader", () => {
+  const w = newWallet(MAYHEM_AGENT, NOW);
+  Object.assign(w, { closed: 80, wins: 72, realizedSol: 700, pnlDecayed: 300, decayTs: NOW, trades: 70_000 });
+  assert.deepEqual(classify(w, NOW), ['protocol_agent']);
+  assert.equal(isSmartMoney(classify(w, NOW)), false);
 });

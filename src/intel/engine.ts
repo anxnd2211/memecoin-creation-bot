@@ -2,7 +2,7 @@ import type { GraduationEvent, LaunchEvent, MarketEvent, MigrationEvent, TradeEv
 import type { PriceBook } from '../market/prices.ts';
 import type { Store, TradeRow } from '../store/db.ts';
 import { SNIPE_WINDOW_SEC, THRESHOLDS, classify, decayTo, isSmartMoney } from './classify.ts';
-import { applyBuy, applySell } from './positions.ts';
+import { applyBuy, applySell, writeOff, type SellResult } from './positions.ts';
 import {
   CHECKPOINTS,
   HOLD_BUCKETS,
@@ -41,6 +41,8 @@ export interface EngineOptions {
 const TRACTION_WINDOW_SEC = 300;
 const SMART_BUY_MAX_AGE_SEC = 1800;
 const DAY = 86_400;
+/** A position and its coin both untraded this long count as abandoned. */
+export const ABANDON_SEC = 2 * 3600;
 
 /**
  * Turns the event stream into live coin, wallet and position state. Everything is updated in memory on each
@@ -50,7 +52,7 @@ export class Engine {
   readonly coins = new Map<string, CoinState>();
   readonly wallets = new Map<string, WalletState>();
   readonly positions = new Map<string, PositionState>();
-  readonly counters = { launches: 0, trades: 0, curveTrades: 0, ammTrades: 0, unvalued: 0, graduations: 0 };
+  readonly counters = { launches: 0, trades: 0, curveTrades: 0, ammTrades: 0, unvalued: 0, graduations: 0, writeOffs: 0 };
   tradeWritesEnabled = true;
 
   private readonly dirtyCoins = new Set<CoinState>();
@@ -103,6 +105,7 @@ export class Engine {
       symbol: ev.symbol,
       uri: ev.uri,
       creator: ev.creator,
+      launcher: ev.user,
       quote: ev.quote,
       createdTs: ev.ts,
       createSig: ev.sig,
@@ -114,9 +117,11 @@ export class Engine {
     });
     this.dirtyCoins.add(coin);
 
-    const creator = this.wallet(ev.creator, ev.ts);
-    creator.launches++;
-    this.dirtyWallets.add(creator);
+    for (const address of new Set([ev.user, ev.creator])) {
+      const w = this.wallet(address, ev.ts);
+      w.launches++;
+      this.dirtyWallets.add(w);
+    }
 
     if (ev.uri && Math.random() < this.opts.metadataSampleRate) this.wantMetadata(coin);
   }
@@ -139,6 +144,7 @@ export class Engine {
     if (ev.isBuy) coin.buys++;
     else coin.sells++;
     if (sol !== null) coin.volumeSol += sol;
+    if (ev.creatorFee) coin.creatorFeesSol += this.prices.toSol(ev.quote, ev.creatorFee) ?? 0;
     if (ev.venue === 'amm' && ev.pool) coin.pool ??= ev.pool;
     let mcapSol: number | null = null;
     if (priceSol !== null && priceSol > 0) {
@@ -156,7 +162,8 @@ export class Engine {
       if (coin.createdTs !== null && ev.ts - coin.createdTs <= SNIPE_WINDOW_SEC) coin.earlyBuyers++;
       if (coin.uniqueBuyers - coin.earlyBuyers === this.opts.metadataMinBuyers) this.wantMetadata(coin);
     }
-    if (coin.creator === ev.wallet) {
+    const isDev = ev.wallet === coin.creator || ev.wallet === coin.launcher;
+    if (isDev) {
       if (ev.isBuy) coin.devBought += ev.coinAmount;
       else {
         coin.devSold += ev.coinAmount;
@@ -220,7 +227,7 @@ export class Engine {
         coin.createdTs !== null &&
         ev.ts - coin.createdTs <= SMART_BUY_MAX_AGE_SEC &&
         isSmartMoney(w.archetypes) &&
-        coin.creator !== ev.wallet
+        !isDev
       ) {
         coin.smartBuys++;
         coin.firstSmartBuyTs ??= ev.ts;
@@ -234,18 +241,7 @@ export class Engine {
       }
     } else {
       w.sells++;
-      const res = applySell(p, ev.ts, ev.coinAmount, sol);
-      w.realizedSol += res.realizedDelta;
-      w.pnlDecayed += res.realizedDelta;
-      if (res.closed) {
-        w.openNow = Math.max(0, w.openNow - 1);
-        if (p.complete && res.holdSec !== null) {
-          w.closed++;
-          if (p.realizedSol > 0) w.wins++;
-          const bucket = HOLD_BUCKETS.findIndex((b) => res.holdSec! <= b);
-          w.holdHist[bucket]!++;
-        }
-      }
+      this.recordExit(w, p, applySell(p, ev.ts, ev.coinAmount, sol));
     }
     this.dirtyWallets.add(w);
     this.dirtyPositions.add(p);
@@ -290,6 +286,7 @@ export class Engine {
         sol,
         coins: ev.coinAmount,
         mcapSol,
+        via: ev.via ?? null,
       });
     }
   }
@@ -381,6 +378,38 @@ export class Engine {
     }
     p.touchedAt = Date.now();
     return p;
+  }
+
+  private recordExit(w: WalletState, p: PositionState, res: SellResult): void {
+    w.realizedSol += res.realizedDelta;
+    w.pnlDecayed += res.realizedDelta;
+    if (!res.closed) return;
+    w.openNow = Math.max(0, w.openNow - 1);
+    if (p.complete && res.holdSec !== null) {
+      w.closed++;
+      if (p.realizedSol > 0) w.wins++;
+      const bucket = HOLD_BUCKETS.findIndex((b) => res.holdSec! <= b);
+      w.holdHist[bucket]!++;
+    }
+  }
+
+  /**
+   * Closes positions abandoned on dead coins (neither the position nor the coin traded for `idleSec`) at the
+   * tokens' last value, so wallet results count bags that were never sold. Returns how many were closed.
+   */
+  writeOffAbandoned(nowTs: number, idleSec = ABANDON_SEC, limit = 20_000): number {
+    const rows = this.store.abandonedPositions(nowTs - idleSec, limit);
+    for (const r of rows) {
+      const p = this.position(r.wallet, r.mint, nowTs);
+      const w = this.wallet(r.wallet, nowTs);
+      decayTo(w, nowTs);
+      this.recordExit(w, p, writeOff(p, nowTs, p.tokens * (r.price ?? 0)));
+      this.dirtyWallets.add(w);
+      this.dirtyPositions.add(p);
+    }
+    this.counters.writeOffs += rows.length;
+    if (rows.length) this.flush();
+    return rows.length;
   }
 
   /** Writes all pending state in one transaction. Returns the number of rows written. */

@@ -17,6 +17,9 @@ npm run report           # market, top coins, wallets by archetype, creator and 
 npm run report -- --hours 6 --limit 20
 npm run report -- --json # same data as JSON, for the Phase 5 post-mortems
 npm run inspect -- <wallet or mint>
+npm run devs             # dev screen: what each dev spent, took out and earned in fees, and how they sold
+npm run devs -- --clean --hours 2   # only coins whose launcher and fees were recorded live
+npm run wallet-history -- <wallet>  # on-chain age, transaction count and first funder of a wallet
 npm test
 ```
 
@@ -34,7 +37,10 @@ Solana RPC websocket (logsSubscribe on the pump.fun and PumpSwap programs)
 ```
 
 - **Coins:** buyers, launch-second buyers (snipers and bundles), organic buyers, volume, market cap, peak, dev buys
-  and sells, graduation, and snapshots at 1, 5, 15 and 60 minutes.
+  and sells, creator fees, graduation, Mayhem mode, and snapshots at 1, 5, 15 and 60 minutes. The dev is the
+  creator plus the wallet that signed the launch, which differs on about a fifth of launches.
+- **Trades:** each stored trade records the program it went through when not called directly (trading terminals,
+  routers, pump.fun's Mayhem agent).
 - **Wallets:** realized PnL (average cost, fees included), win rate, hold-time distribution, trades per day, buy
   sizes, snipe rate, coins opened per hour, busiest hours, launches. Archetypes: top performer, whale, aggressive,
   flipper, sniper, multi-coin, scheduled, bot-like, serial creator (thresholds in `src/intel/classify.ts`).
@@ -49,10 +55,10 @@ Run `npm run update-idl` when pump.fun announces a program upgrade.
 
 ```
 src/chain      decoder, live stream, confirmation gate, PumpSwap pool resolver
-src/intel      engine, positions, archetypes, report queries
+src/intel      engine, positions, archetypes, report queries, dev screen
 src/market     SOL and quote prices, coin metadata fetcher
 src/store      SQLite schema and writes
-src/cli        observe, report, inspect, update-idl
+src/cli        observe, report, inspect, devs, wallet-history, backfill-launchers, update-idl
 idl/           pump.fun program IDLs (from github.com/pump-fun/pump-public-docs)
 test/          unit tests and real mainnet transaction fixtures
 ```

@@ -13,13 +13,13 @@ CREATE TABLE IF NOT EXISTS ids (id INTEGER PRIMARY KEY, address TEXT NOT NULL UN
 
 CREATE TABLE IF NOT EXISTS coins (
   mint TEXT PRIMARY KEY,
-  name TEXT, symbol TEXT, uri TEXT, creator TEXT, quote TEXT NOT NULL,
+  name TEXT, symbol TEXT, uri TEXT, creator TEXT, launcher TEXT, quote TEXT NOT NULL,
   created_ts INTEGER, create_sig TEXT, total_supply REAL NOT NULL,
   is_mayhem INTEGER NOT NULL DEFAULT 0, is_holder_reward INTEGER NOT NULL DEFAULT 0,
   launch_price_sol REAL,
   trades INTEGER NOT NULL DEFAULT 0, buys INTEGER NOT NULL DEFAULT 0, sells INTEGER NOT NULL DEFAULT 0,
   unique_buyers INTEGER NOT NULL DEFAULT 0, early_buyers INTEGER NOT NULL DEFAULT 0,
-  volume_sol REAL NOT NULL DEFAULT 0,
+  volume_sol REAL NOT NULL DEFAULT 0, creator_fees_sol REAL NOT NULL DEFAULT 0,
   last_price_sol REAL, last_mcap_sol REAL, peak_mcap_sol REAL NOT NULL DEFAULT 0, peak_ts INTEGER,
   last_trade_ts INTEGER,
   dev_bought REAL NOT NULL DEFAULT 0, dev_sold REAL NOT NULL DEFAULT 0,
@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS coins (
 CREATE INDEX IF NOT EXISTS coins_created ON coins(created_ts);
 CREATE INDEX IF NOT EXISTS coins_creator ON coins(creator, created_ts);
 CREATE INDEX IF NOT EXISTS coins_peak ON coins(peak_mcap_sol);
+
+-- Launchers looked up after the fact for coins recorded before the coins table had a launcher column.
+CREATE TABLE IF NOT EXISTS launchers (mint TEXT PRIMARY KEY, launcher TEXT NOT NULL) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS trades (
   ts INTEGER NOT NULL, slot INTEGER NOT NULL, mint_id INTEGER NOT NULL, wallet_id INTEGER NOT NULL,
@@ -93,6 +96,8 @@ export interface TradeRow {
   sol: number | null;
   coins: number;
   mcapSol: number | null;
+  /** Top-level program the trade went through, when not called directly. */
+  via: string | null;
 }
 
 export interface PoolRow {
@@ -119,21 +124,25 @@ export class Store {
     this.db.exec(SCHEMA);
     // Columns added after the first release; CREATE TABLE IF NOT EXISTS leaves older databases without them.
     this.ensureColumn('wallet_stats', 'large_buys', 'INTEGER NOT NULL DEFAULT 0');
+    this.ensureColumn('coins', 'creator_fees_sol', 'REAL NOT NULL DEFAULT 0');
+    this.ensureColumn('coins', 'launcher', 'TEXT');
+    this.ensureColumn('trades', 'via_id', 'INTEGER');
+    this.db.exec('CREATE INDEX IF NOT EXISTS coins_launcher ON coins(launcher, created_ts)');
     const p = (sql: string) => this.db.prepare(sql);
     this.s = {
       idInsert: p('INSERT OR IGNORE INTO ids (address) VALUES (?)'),
       idSelect: p('SELECT id FROM ids WHERE address = ?'),
       trade: p(
-        'INSERT INTO trades (ts, slot, mint_id, wallet_id, is_buy, venue, sol, coins, mcap_sol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO trades (ts, slot, mint_id, wallet_id, is_buy, venue, sol, coins, mcap_sol, via_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       ),
       coinGet: p('SELECT * FROM coins WHERE mint = ?'),
-      coinPut: p(`INSERT OR REPLACE INTO coins (mint, name, symbol, uri, creator, quote, created_ts, create_sig, total_supply,
-        is_mayhem, is_holder_reward, launch_price_sol, trades, buys, sells, unique_buyers, early_buyers, volume_sol, last_price_sol,
+      coinPut: p(`INSERT OR REPLACE INTO coins (mint, name, symbol, uri, creator, launcher, quote, created_ts, create_sig, total_supply,
+        is_mayhem, is_holder_reward, launch_price_sol, trades, buys, sells, unique_buyers, early_buyers, volume_sol, creator_fees_sol, last_price_sol,
         last_mcap_sol, peak_mcap_sol, peak_ts, last_trade_ts, dev_bought, dev_sold, dev_first_sell_ts, dev_sold_all_ts,
         graduated_ts, pool, smart_buys, first_smart_buy_ts, checkpoints, meta_status, description, image, twitter,
         telegram, website, updated_at)
-        VALUES (@mint, @name, @symbol, @uri, @creator, @quote, @created_ts, @create_sig, @total_supply, @is_mayhem,
-        @is_holder_reward, @launch_price_sol, @trades, @buys, @sells, @unique_buyers, @early_buyers, @volume_sol, @last_price_sol,
+        VALUES (@mint, @name, @symbol, @uri, @creator, @launcher, @quote, @created_ts, @create_sig, @total_supply, @is_mayhem,
+        @is_holder_reward, @launch_price_sol, @trades, @buys, @sells, @unique_buyers, @early_buyers, @volume_sol, @creator_fees_sol, @last_price_sol,
         @last_mcap_sol, @peak_mcap_sol, @peak_ts, @last_trade_ts, @dev_bought, @dev_sold, @dev_first_sell_ts,
         @dev_sold_all_ts, @graduated_ts, @pool, @smart_buys, @first_smart_buy_ts, @checkpoints, @meta_status,
         @description, @image, @twitter, @telegram, @website, @updated_at)`),
@@ -145,6 +154,10 @@ export class Store {
         @closed, @wins, @realized_sol, @pnl_decayed, @trades_decayed, @decay_ts, @snipes, @known_entries, @launches,
         @open_now, @max_open, @hold_hist, @hour_hist, @days, @hour_opens, @archetypes, @updated_at)`),
       positionGet: p('SELECT * FROM positions WHERE wallet_id = ? AND mint_id = ?'),
+      abandoned: p(`SELECT w.address AS wallet, m.address AS mint, c.last_price_sol AS price
+        FROM positions p JOIN ids w ON w.id = p.wallet_id JOIN ids m ON m.id = p.mint_id JOIN coins c ON c.mint = m.address
+        WHERE p.last_ts < ? AND p.closed_ts IS NULL AND p.tokens > 0 AND (c.last_trade_ts IS NULL OR c.last_trade_ts < ?)
+        LIMIT ?`),
       positionPut: p(`INSERT OR REPLACE INTO positions (wallet_id, mint_id, tokens, peak_tokens, basis_sol, cost_sol,
         proceeds_sol, realized_sol, buys, sells, first_ts, last_ts, closed_ts, entry_delay, complete)
         VALUES (@wallet_id, @mint_id, @tokens, @peak_tokens, @basis_sol, @cost_sol, @proceeds_sol, @realized_sol,
@@ -192,7 +205,8 @@ export class Store {
   }
 
   insertTrade(t: TradeRow): void {
-    this.st('trade').run(t.ts, t.slot, this.id(t.mint), this.id(t.wallet), t.isBuy ? 1 : 0, t.venue, t.sol, t.coins, t.mcapSol);
+    const via = t.via !== null ? this.id(t.via) : null;
+    this.st('trade').run(t.ts, t.slot, this.id(t.mint), this.id(t.wallet), t.isBuy ? 1 : 0, t.venue, t.sol, t.coins, t.mcapSol, via);
   }
 
   loadCoin(mint: string): Record<string, any> | undefined {
@@ -206,6 +220,7 @@ export class Store {
       symbol: c.symbol,
       uri: c.uri,
       creator: c.creator,
+      launcher: c.launcher,
       quote: c.quote,
       created_ts: c.createdTs,
       create_sig: c.createSig,
@@ -219,6 +234,7 @@ export class Store {
       unique_buyers: c.uniqueBuyers,
       early_buyers: c.earlyBuyers,
       volume_sol: c.volumeSol,
+      creator_fees_sol: c.creatorFeesSol,
       last_price_sol: c.lastPriceSol,
       last_mcap_sol: c.lastMcapSol,
       peak_mcap_sol: c.peakMcapSol,
@@ -298,6 +314,11 @@ export class Store {
 
   loadPosition(wallet: string, mint: string): Record<string, any> | undefined {
     return this.st('positionGet').get(this.id(wallet), this.id(mint)) as Record<string, any> | undefined;
+  }
+
+  /** Open positions untouched since `beforeTs` on coins with no trade since then either. */
+  abandonedPositions(beforeTs: number, limit: number): { wallet: string; mint: string; price: number | null }[] {
+    return this.st('abandoned').all(beforeTs, beforeTs, limit) as { wallet: string; mint: string; price: number | null }[];
   }
 
   savePosition(p: PositionState): void {

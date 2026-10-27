@@ -50,7 +50,9 @@
    "quote": "SOL",
    "quoteAmount": 0.07745043,
    "coinAmount": 62722438.323193,
-   "price": 1.4591952650097479e-9
+   "price": 1.4591952650097479e-9,
+   "creatorFee": 0,
+   "via": "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e"
   }
  },
  "trade_sell": {
@@ -95,7 +97,8 @@
    "quote": "SOL",
    "quoteAmount": 0.214808092,
    "coinAmount": 5082597.082442,
-   "price": 4.254834268633863e-8
+   "price": 4.254834268633863e-8,
+   "creatorFee": 0.000652582
   }
  },
  "pool_trade": {
@@ -161,7 +164,8 @@
    "baseBuy": true,
    "baseAmountRaw": 19711835,
    "quoteAmountRaw": 8305982212,
-   "quoteAmountNoFeeRaw": 8330900160
+   "quoteAmountNoFeeRaw": 8330900160,
+   "creatorFeeRaw": 0
   }
  },
  "launch": {

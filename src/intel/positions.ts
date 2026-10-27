@@ -47,6 +47,20 @@ export function applyBuy(p: PositionState, ts: number, coins: number, sol: numbe
   return { opened };
 }
 
+/**
+ * Closes a position left holding tokens on a coin nobody trades any more, at what those tokens are worth now. Without
+ * this, a wallet that sells its winners and abandons its losers would only ever show wins. A later sell of the
+ * written-off tokens is not counted again.
+ */
+export function writeOff(p: PositionState, ts: number, valueSol: number): SellResult {
+  if (p.closedTs !== null || p.tokens <= 0) return { realizedDelta: 0, closed: false, holdSec: null };
+  const realizedDelta = valueSol - p.basisSol;
+  p.realizedSol += realizedDelta;
+  p.basisSol = 0;
+  p.closedTs = ts;
+  return { realizedDelta, closed: true, holdSec: ts - p.firstTs };
+}
+
 /** Applies a sell; realizes PnL only on tokens whose purchase was observed. */
 export function applySell(p: PositionState, ts: number, coins: number, sol: number | null): SellResult {
   p.sells++;

@@ -31,6 +31,15 @@ test('live trade events have sane values', () => {
   }
 });
 
+test('sell proceeds and creator fee match the on-chain balance change', () => {
+  // The seller's SOL rose by 213,303,092 lamports after a 755,000 network fee and a 750,000 tip; the
+  // 1,033,254 lamport buyback fee came out of the curve, not the seller.
+  const ev = decodeTx(fixtures['trade_sell']!.tx).events.find((e) => e.kind === 'trade');
+  assert.ok(ev && ev.kind === 'trade');
+  assert.ok(Math.abs(ev.quoteAmount - 0.214808092) < 1e-12);
+  assert.ok(Math.abs(ev.creatorFee! - 0.000652582) < 1e-12);
+});
+
 test('attributes Program data lines to the program executing at that depth', () => {
   const logs = [
     'Program Router111 invoke [1]',
@@ -45,8 +54,8 @@ test('attributes Program data lines to the program executing at that depth', () 
   const { items, truncated } = extractProgramData(logs);
   assert.equal(truncated, false);
   assert.deepEqual(items, [
-    { program: 'PumpProg', data: 'AAAA' },
-    { program: 'Router111', data: 'BBBB' },
+    { program: 'PumpProg', entry: 'Router111', data: 'AAAA' },
+    { program: 'Router111', entry: 'Router111', data: 'BBBB' },
   ]);
 });
 

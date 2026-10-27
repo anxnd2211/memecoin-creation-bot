@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyBuy, applySell } from '../src/intel/positions.ts';
+import { applyBuy, applySell, writeOff } from '../src/intel/positions.ts';
 import { newPosition } from '../src/intel/state.ts';
 
 const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -61,4 +61,16 @@ test('dust left behind still counts as a full exit', () => {
   applyBuy(p, 0, 1000, 1);
   const r = applySell(p, 30, 995, 1.5);
   assert.equal(r.closed, true);
+});
+
+test('writing off an abandoned position realizes the loss once', () => {
+  const p = newPosition('w', 'm', 0);
+  applyBuy(p, 0, 1000, 2);
+  const res = writeOff(p, 7200, 0.5);
+  assert.equal(res.closed, true);
+  assert.equal(res.realizedDelta, -1.5);
+  assert.equal(p.basisSol, 0);
+  assert.equal(writeOff(p, 7300, 0.5).closed, false);
+  // Selling the written-off tokens later adds nothing.
+  assert.equal(applySell(p, 7400, 1000, 1).realizedDelta, 0);
 });

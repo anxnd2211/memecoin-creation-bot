@@ -164,11 +164,14 @@ export function toTrade(row: PoolRow, pt: PoolTrade): TradeEvent | null {
   let coinAmount: number;
   let quoteAmount: number;
   let price: number;
+  // In inverted pools the creator fee is paid in the coin itself; it is left out.
+  let creatorFee: number | undefined;
   if (!row.inverted) {
     isBuy = pt.baseBuy;
     coinAmount = pt.baseAmountRaw / cd;
     quoteAmount = pt.quoteAmountRaw / qd;
     price = coinAmount > 0 ? pt.quoteAmountNoFeeRaw / qd / coinAmount : 0;
+    creatorFee = pt.creatorFeeRaw / qd;
   } else {
     // Base is SOL: buying the base means selling the coin.
     isBuy = !pt.baseBuy;
@@ -190,6 +193,8 @@ export function toTrade(row: PoolRow, pt: PoolTrade): TradeEvent | null {
     quoteAmount,
     coinAmount,
     price,
+    creatorFee,
+    ...(pt.via ? { via: pt.via } : {}),
     pool: row.pool,
   };
 }

@@ -1,9 +1,10 @@
+import { MAYHEM_AGENT } from '../chain/programs.ts';
 import { HOLD_BUCKETS, type WalletState } from './state.ts';
 
 export const DECAY_HALF_LIFE_SEC = 86_400;
 
 /** Bump whenever archetype rules change, so stored labels are recomputed on the next observer start. */
-export const CLASSIFY_VERSION = 2;
+export const CLASSIFY_VERSION = 3;
 
 /** Entry within this many seconds of launch counts as a snipe. */
 export const SNIPE_WINDOW_SEC = 3;
@@ -38,6 +39,7 @@ export const THRESHOLDS = {
 };
 
 export const ARCHETYPES: Record<string, string> = {
+  protocol_agent: "pump.fun's Mayhem-mode agent, which trades opt-in coins fee-free for their first 24 hours",
   top_performer: 'consistently profitable on closed positions, and still in form',
   whale: 'repeated large buys (5+ SOL, not in a launch second)',
   aggressive: 'high trade frequency at meaningful size',
@@ -101,6 +103,8 @@ export function opensPerActiveHour(w: WalletState): { rate: number; activeHours:
 }
 
 export function classify(w: WalletState, nowTs: number): string[] {
+  // The agent trades on the protocol's behalf with minted supply and no fees; trader labels do not apply.
+  if (w.wallet === MAYHEM_AGENT) return ['protocol_agent'];
   const t = THRESHOLDS;
   const out: string[] = [];
   const winRate = w.closed > 0 ? w.wins / w.closed : 0;

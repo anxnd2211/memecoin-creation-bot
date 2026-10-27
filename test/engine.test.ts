@@ -130,3 +130,29 @@ test('state survives eviction and reload', () => {
   assert.equal(w.closed, 1);
   assert.ok(Math.abs(w.realized_sol - 1) < 1e-9);
 });
+
+test('a bag abandoned on a dead coin is closed as a loss at its last value', () => {
+  const { store, engine } = setup();
+  engine.handle(launch());
+  // Winner: bought and sold at a profit. Loser: bought and never sold; the coin then dies.
+  engine.handle(trade('Trader', T0 + 10, true, 1, 10_000_000, 0.0000001));
+  engine.handle(trade('Trader', T0 + 20, false, 2, 10_000_000, 0.0000002));
+  const DEAD = 'Dead111111111111111111111111111111111111pump';
+  engine.handle({ ...launch(), mint: DEAD });
+  engine.handle({ ...trade('Trader', T0 + 30, true, 3, 30_000_000, 0.00000001), mint: DEAD });
+  engine.flush();
+  assert.equal(store.loadWallet('Trader')!.closed, 1);
+  assert.equal(store.loadWallet('Trader')!.wins, 1);
+
+  // Too soon: nothing is written off.
+  assert.equal(engine.writeOffAbandoned(T0 + 600), 0);
+
+  const later = T0 + 3 * 3600;
+  assert.equal(engine.writeOffAbandoned(later), 1); // only the open bag; the closed winner is left alone
+  const w = store.loadWallet('Trader')!;
+  assert.equal(w.closed, 2);
+  assert.equal(w.wins, 1);
+  // 30M tokens at 1e-8 SOL are worth 0.3 SOL against a 3 SOL basis.
+  assert.ok(Math.abs(w.realized_sol - (1 - 2.7)) < 1e-9);
+  assert.equal(engine.writeOffAbandoned(later + 60), 0);
+});

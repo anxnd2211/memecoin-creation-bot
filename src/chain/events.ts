@@ -40,6 +40,10 @@ export interface TradeEvent extends Base {
   coinAmount: number;
   /** Price in quote units per whole coin after the trade (curve) or at execution (PumpSwap). */
   price: number;
+  /** Creator fee paid on this trade, in quote units; part of quoteAmount. */
+  creatorFee?: number;
+  /** Top-level program the trade went through, when it was not called directly. */
+  via?: string;
   pool?: string;
 }
 
@@ -74,6 +78,9 @@ export interface PoolTrade extends Base {
   quoteAmountRaw: number;
   /** Quote amount excluding fees, for pricing. */
   quoteAmountNoFeeRaw: number;
+  /** Coin creator fee, in the pool's quote token. */
+  creatorFeeRaw: number;
+  via?: string;
 }
 
 export type MarketEvent = LaunchEvent | TradeEvent | GraduationEvent | MigrationEvent | PoolCreatedEvent;

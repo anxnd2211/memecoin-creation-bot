@@ -17,6 +17,7 @@ const pt = (o: Partial<PoolTrade>): PoolTrade => ({
   baseAmountRaw: 1_000_000_000, // 1,000 coins
   quoteAmountRaw: 1_010_000_000, // 1.01 SOL paid incl. fees
   quoteAmountNoFeeRaw: 1_000_000_000,
+  creatorFeeRaw: 3_000_000,
   ...o,
 });
 
@@ -38,6 +39,7 @@ test('pool buys become coin buys priced without fees', () => {
   assert.equal(t.coinAmount, 1000);
   assert.equal(t.quoteAmount, 1.01);
   assert.equal(t.price, 0.001);
+  assert.equal(t.creatorFee, 0.003);
 });
 
 test('an inverted pool (SOL as base) flips the trade direction', () => {
@@ -49,4 +51,5 @@ test('an inverted pool (SOL as base) flips the trade direction', () => {
   assert.equal(t.isBuy, false);
   assert.equal(t.coinAmount, 5);
   assert.equal(t.quoteAmount, 2);
+  assert.equal(t.creatorFee, undefined);
 });

@@ -18,10 +18,13 @@ const FLUSH_MS = 2_000;
 const SWEEP_MS = 60_000;
 const STATUS_MS = 30_000;
 const PRUNE_MS = 3600_000;
+const WRITE_OFF_MS = 10 * 60_000;
 
 const store = new Store(config.dbPath);
 const relabelled = relabelWalletsIfRulesChanged(store, Math.floor(Date.now() / 1000));
 if (relabelled !== null) log.info('archetype rules changed; relabelled stored wallets', { changed: relabelled });
+// Creator fees are complete only for coins launched after capture began.
+if (store.getMeta('creator_fees_since') === undefined) store.setMeta('creator_fees_since', Math.floor(Date.now() / 1000));
 const prices = new PriceBook(config.jupiterApiKey);
 await prices.start();
 log.info('SOL price loaded', { usd: prices.solUsd });
@@ -141,6 +144,7 @@ function status(): void {
     confirm: gate ? { ...gate.stats, pending: gate.pendingCount } : null,
     pools: resolver.stats,
     unvaluedTrades: c.unvalued,
+    abandonedWrittenOff: c.writeOffs,
     truncatedTxs,
     undecodable: decodeStats.undecodable,
     duplicateEvents: decodeStats.duplicates,
@@ -187,6 +191,11 @@ function prune(): void {
 
 guardDisk();
 prune();
+// Clear the backlog of abandoned positions before streaming, then keep up every few minutes.
+let writtenOff = 0;
+for (let i = 0, n; i < 100 && (n = engine.writeOffAbandoned(Math.floor(Date.now() / 1000))); i++) writtenOff += n;
+engine.sweep();
+if (writtenOff) log.info('closed abandoned positions on dead coins', { positions: writtenOff });
 const timers = [
   setInterval(safeFlush, FLUSH_MS),
   setInterval(() => {
@@ -196,6 +205,7 @@ const timers = [
   }, SWEEP_MS),
   setInterval(status, STATUS_MS),
   setInterval(prune, PRUNE_MS),
+  setInterval(() => engine.writeOffAbandoned(Math.floor(Date.now() / 1000)), WRITE_OFF_MS),
 ];
 
 let stopping = false;

@@ -5,18 +5,18 @@ import { walletFromRow, type Checkpoint } from './state.ts';
 /** Organic buyers in the first five minutes that count as traction (matches the live traction signal). */
 export const TRACTION_BUYERS = 25;
 
-function median(xs: number[]): number | null {
+export function median(xs: number[]): number | null {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 }
 
-function mean(xs: number[]): number | null {
+export function mean(xs: number[]): number | null {
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 }
 
-function share(xs: boolean[]): number | null {
+export function share(xs: boolean[]): number | null {
   return xs.length ? xs.filter(Boolean).length / xs.length : null;
 }
 
@@ -25,6 +25,8 @@ interface CoinRow {
   name: string | null;
   symbol: string | null;
   creator: string | null;
+  /** The signer when recorded, else the creator. */
+  dev: string | null;
   created_ts: number;
   unique_buyers: number;
   early_buyers: number;
@@ -59,7 +61,7 @@ export function isBuyout(c: { graduated_ts: number | null; created_ts: number })
 function launchedCoins(db: DatabaseSync, sinceTs: number): CoinRow[] {
   return db
     .prepare(
-      `SELECT mint, name, symbol, creator, created_ts, unique_buyers, early_buyers, volume_sol, peak_mcap_sol, peak_ts,
+      `SELECT mint, name, symbol, creator, COALESCE(launcher, creator) AS dev, created_ts, unique_buyers, early_buyers, volume_sol, peak_mcap_sol, peak_ts,
         last_mcap_sol, dev_bought, dev_first_sell_ts, dev_sold_all_ts, graduated_ts, smart_buys, checkpoints, twitter,
         website, description
        FROM coins WHERE created_ts >= ?`,
@@ -267,23 +269,36 @@ function words(c: CoinRow): string[] {
  * Words in coin names and tickers that show up more among coins with traction than among all launches.
  * A first, crude read on what the market is buying; Phase 2's narrative engine replaces it.
  */
-export function nameLift(db: DatabaseSync, sinceTs: number, minCount = 5) {
+/**
+ * Words over-represented among coins with traction. Counted per dev, not per launch, so one dev relaunching the same
+ * name a hundred times reads as one dev, not as a narrative.
+ */
+export function nameLift(db: DatabaseSync, sinceTs: number, minDevs = 4) {
   const coins = launchedCoins(db, sinceTs).filter((c) => c.checkpoints.includes('"300"'));
-  const hits = coins.filter(
-    (c) => (organicAt(c, 300) ?? 0) >= TRACTION_BUYERS || (c.graduated_ts !== null && !isBuyout(c)),
-  );
-  if (!hits.length) return [];
-  const all = new Map<string, number>();
-  const hit = new Map<string, number>();
-  for (const c of coins) for (const w of words(c)) all.set(w, (all.get(w) ?? 0) + 1);
-  for (const c of hits) for (const w of words(c)) hit.set(w, (hit.get(w) ?? 0) + 1);
+  const isHit = (c: CoinRow) => (organicAt(c, 300) ?? 0) >= TRACTION_BUYERS || (c.graduated_ts !== null && !isBuyout(c));
+  const devOf = (c: CoinRow) => c.dev ?? c.mint;
+  const all = new Map<string, Set<string>>();
+  const hit = new Map<string, Set<string>>();
+  const launches = new Map<string, number>();
+  const add = (m: Map<string, Set<string>>, w: string, dev: string) => m.set(w, (m.get(w) ?? new Set()).add(dev));
+  for (const c of coins) {
+    for (const w of words(c)) {
+      add(all, w, devOf(c));
+      launches.set(w, (launches.get(w) ?? 0) + 1);
+      if (isHit(c)) add(hit, w, devOf(c));
+    }
+  }
+  const devs = new Set(coins.map(devOf)).size;
+  const hitDevs = new Set(coins.filter(isHit).map(devOf)).size;
+  if (!hitDevs) return [];
   return [...hit.entries()]
-    .filter(([w, n]) => n >= 2 && (all.get(w) ?? 0) >= minCount)
-    .map(([w, n]) => ({
+    .filter(([w, d]) => d.size >= 2 && all.get(w)!.size >= minDevs)
+    .map(([w, d]) => ({
       word: w,
-      launches: all.get(w)!,
-      withTraction: n,
-      lift: n / hits.length / (all.get(w)! / coins.length),
+      devs: all.get(w)!.size,
+      launches: launches.get(w)!,
+      devsWithTraction: d.size,
+      lift: d.size / hitDevs / (all.get(w)!.size / devs),
     }))
     .sort((a, b) => b.lift - a.lift)
     .slice(0, 25);

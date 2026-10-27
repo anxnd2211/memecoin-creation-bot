@@ -1,5 +1,9 @@
 export const PUMP_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 export const PUMP_AMM_PROGRAM = 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA';
+/** pump.fun's Mayhem-mode program: an agent trades opt-in coins for their first 24 hours, fee-free. */
+export const MAYHEM_PROGRAM = 'MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e';
+/** The account pump.fun's trade events name as the buyer and seller for the Mayhem agent's trades. */
+export const MAYHEM_AGENT = 'BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s';
 
 export const DEFAULT_PUBKEY = '11111111111111111111111111111111';
 export const WSOL_MINT = 'So11111111111111111111111111111111111111112';

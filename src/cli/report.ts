@@ -195,8 +195,14 @@ table(
   })),
 );
 
-heading('Name/ticker words over-represented among coins with traction');
+heading('Name/ticker words over-represented among coins with traction (counted per dev)');
 table(
-  data.nameLift.map((r) => ({ word: r.word, launches: r.launches, 'with traction': r.withTraction, lift: num(r.lift) })),
+  data.nameLift.map((r) => ({
+    word: r.word,
+    devs: r.devs,
+    launches: r.launches,
+    'devs with traction': r.devsWithTraction,
+    lift: num(r.lift),
+  })),
 );
 console.log();
