@@ -34,6 +34,7 @@ npm run export-paths     # each launch's price path with our bag, for exit resea
 python3 ml/exits.py      # the exit ceiling, and smarter exits against v2 on held-out blocks
 python3 ml/opportunities.py   # first-on-post results by speed, source-account tiers, chances an hour
 python3 ml/sealed.py     # final check on launches sealed away from all research
+python3 ml/timing.py     # clock hours and the market's state before a launch, and timing policies simulated
 npm run postmortem -- --shadow 10   # the batch review (on our launches once they exist)
 npm test
 ```

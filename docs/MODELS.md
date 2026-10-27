@@ -126,3 +126,43 @@ sniper bots come less often above about 6 SOL: 81% at 5 SOL (78 devs), 74% at 7 
 What this means for the coin designer: what can be measured from pump.fun alone is about *which post* and *how
 fast*, not wording. Of the design choices, only the website (link the source) showed. Post content (text, media,
 the author's reach, likes in the first minute) needs the X API and is the next set of features to test.
+
+## Round 6, 2026-10-28: when to launch (`ml/timing.py`)
+
+The recording covers 14 of the 24 UTC hours (01–07, 11–12, 19–23), all on one Tuesday. Bitquery's public snapshot
+puts pump.fun's busiest launch hours at 15:00–22:00 UTC, peaking at 20:00. That counts launches (crowding), not
+successful ones.
+
+- **Clock hour: no effect for the same dev.**
+  - Across devs, launches made at 01–07 UTC made +3.66 SOL a launch (83% sniped) against +2.52 at 19–22 UTC (66%
+    sniped).
+  - The 32 devs who launched in both windows made the same in each: evening minus early −0.06 SOL (90% −1.01 to
+    +0.90), and the same sniped share.
+  - The hours differ in who launches then, not in what a launch gets.
+- **Market state before a launch: no effect.** Eleven measures were tested: trading volume, traders and trades in
+  the last 10 minutes, launches in the last 10 and 60, the Mayhem share, the share of recent launches that drew
+  buyers, graduations, the volume trend, sniper buying on recent 3 SOL+ launches, and what the exit made on launches
+  10–70 minutes earlier. None ranked results the same way in both halves of the hours. Models built on them ranked
+  held-out blocks slightly backwards (−0.07 to −0.11).
+- **Timing policies, simulated** on first-on-post chances with 10 minutes between launches:
+
+  | Policy | Launches | SOL a launch | SOL an hour |
+  | --- | --- | --- | --- |
+  | Every chance | 26 | +4.23 | +15.5 |
+  | Only when the market model, fitted on other blocks, is above its median | 17 | +4.73 | +11.3 |
+  | Only above its 25th percentile | 21 | +3.24 | +9.6 |
+
+  Waiting for a better market loses launches without reliably making each one better.
+- **Chances never ran out.** Every recorded hour had 20–76 first-on-post chances in the 3–5 SOL band, far more than
+  the 6 an hour that 10-minute spacing allows. The busiest hours (20–21 UTC) had the most.
+
+**What this means:** the timing that matters is relative to the post (within 2 minutes, first on it) and to our
+last launch (10 minutes). The clock and the market's mood did not matter here. Run the bot whenever the owner can
+approve launches.
+
+**What is still unknown:**
+
+- The 10 unrecorded hours (00, 08–10, 13–18 UTC), including most of the 15:00–22:00 UTC peak.
+- Days of the week.
+
+`python3 ml/timing.py` re-runs this; it needs a week of continuous recording to answer these.

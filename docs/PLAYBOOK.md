@@ -186,6 +186,7 @@ Each rule is dated with its evidence, so a later version can check whether it st
 | 2026-10-28 | Space launches 10 minutes apart | The same devs made 0.57 SOL a launch less, with less sniper buying, when launching within 10 min of their last |
 | 2026-10-28 | Do not go below 3 SOL; 5 SOL beats 3 | 2–2.95 SOL made 0.48 SOL per SOL put in on strong posts, 5 SOL 0.89; no sign that big dev buys deter traders |
 | 2026-10-28 | Name, ticker and description length do not decide much | None of ~60 name, ticker and description features replicated, within the same post or across launches |
+| 2026-10-28 | Launch whenever the rules are met; do not wait for an hour or a hot market | The same devs made the same at 01–07 and 19–22 UTC (−0.06, 90% −1.01 to +0.90); no market measure predicted results on held-out blocks; launching at every chance made +15.5 SOL an hour against +9.6 to +11.3 for waiting |
 
 ## How the playbook improves
 
@@ -202,6 +203,7 @@ npm run export-paths && python3 ml/exits.py                     # can any exit b
 python3 ml/opportunities.py                                     # speed, source accounts, chances an hour, dev-buy size
 python3 ml/sentiment.py && python3 ml/design.py                 # dev-buy sentiment, sniping; design features that replicate
 python3 ml/rulecheck.py                                         # playbook rules side by side, research halves and sealed
+python3 ml/timing.py                                            # do clock hours or the market's state matter yet?
 npm run postmortem -- --shadow 10                               # the batch review, on recorded launches until ours exist
 ```
 
