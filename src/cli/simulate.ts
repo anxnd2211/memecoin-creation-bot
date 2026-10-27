@@ -245,13 +245,16 @@ const latency = [1, 2, 5, 12, 25].map((slots) => ({
   slots,
   score: scoreResults(testCoins, chosen, runPolicy(testCoins, chosen, { ...options, latencySlots: slots })),
 }));
-// Sniper bots react to the dev buy: a 3 SOL buy (about 10% of supply) draws far more launch-second buying than 2.5.
+// Sniper bots react to the dev buy: a 3 SOL buy (about 10% of supply) draws far more launch-second buying than 2.5,
+// and a 5 SOL buy as much again while the bigger bag takes more of it (SOL paid, fees included).
 const buckets = [
   ['<1 SOL', 0, 1],
   ['1-2.95', 1, 2.95],
-  ['2.95-4.5', 2.95, 4.5],
-  ['4.5-6', 4.5, 6],
-  ['>=6', 6, Infinity],
+  ['2.95-3.1', 2.95, 3.1],
+  ['3.1-4.9', 3.1, 4.9],
+  ['4.9-5.2', 4.9, 5.2],
+  ['5.2-8', 5.2, 8],
+  ['>=8', 8, Infinity],
 ] as const;
 const everyCoin = [...fitCoins, ...testCoins];
 const everyResult = [...choice.results.get(chosen.name)!, ...chosenTest];

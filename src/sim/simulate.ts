@@ -28,8 +28,15 @@ export interface ExitPolicy {
    * `windowSec` seconds is at or below `minSol`: hold while buying keeps coming, leave when it stalls or turns.
    */
   stall?: { minHoldSec: number; windowSec: number; minSol: number } | null;
-  /** Share of the launch bag kept, once the dev buy is recovered, and valued at the end. */
+  /** Sells at fixed times after launch, each a share of the launch bag: the quick split most devs use. */
+  timeLadder?: { atSec: number; share: number }[];
+  /** Share of the launch bag kept at the exit, once the dev buy is recovered; valued at the end unless `moonbagExit`. */
   moonbagShare: number;
+  /**
+   * Sells the moonbag once other wallets' net buying over the last `windowSec` (counted from the main exit) is at or
+   * below `minSol`, or at `maxHoldSec` after launch.
+   */
+  moonbagExit?: { windowSec: number; minSol: number; maxHoldSec: number } | null;
   /** Replay the recorded dev's own trades instead of a plan, to check the replay and as a benchmark. */
   replayDev?: boolean;
 }
@@ -83,6 +90,8 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
   let costs = o.launchCostSol;
   let firstSellTs: number | null = null;
 
+  /** Other wallets' sells that reacted to the recorded dev's sell, held back until we sell. */
+  const deferred: FlowTrade[] = [];
   const sell = (amount: number, ts: number) => {
     amount = Math.min(amount, tokens);
     if (!(amount > 0)) return;
@@ -93,6 +102,8 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
     sells++;
     costs += o.txCostSol;
     firstSellTs ??= ts;
+    // The sell-when-the-dev-sells wallets now react to ours, right after it.
+    for (const t of deferred.splice(0)) other(t);
   };
   const buy = (sol: number) => {
     const r = curve.buy(sol);
@@ -108,10 +119,12 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
   /** Ladder sells waiting to land: they execute before the first trade at or after `slot`. */
   let pending: { slot: number; tokens: number } | null = null;
   let exited = false;
+  let exitTs = Infinity;
   /** Sells everything but the moonbag; the moonbag is kept only if the dev buy is back by then. */
   const exit = (ts: number) => {
     if (exited) return;
     exited = true;
+    exitTs = ts;
     pending = null;
     const keep = moonbag > 0 && received + curve.sellValue(tokens - moonbag) >= spent ? moonbag : 0;
     sell(tokens - keep, ts);
@@ -151,38 +164,8 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
   /** The stall exit's time if nothing else trades first; a stall a trade causes lands `latencySlots` after it. */
   let stallAt = stallFrom;
   let stallExitSlot: number | null = null;
-
-  for (const t of coin.trades) {
-    if (t.ts - created > o.horizonSec || curve.complete) break;
-    if (plan && !exited) {
-      // Timers fire before any trade that comes after them.
-      if (t.ts - created >= policy.maxHoldSec) exit(created + policy.maxHoldSec);
-      else if (policy.idleSec !== null && t.ts - lastBuyTs >= policy.idleSec + latencySec) exit(lastBuyTs + policy.idleSec);
-      else if (stallExitSlot !== null ? t.slot >= stallExitSlot : t.ts >= stallAt + latencySec) {
-        // A window that went quiet needs no trade to notice; the curve has not moved since the last one.
-        exit(stallExitSlot !== null ? t.ts : stallAt);
-      }
-      if (pending && t.slot >= pending.slot) {
-        sell(pending.tokens, t.ts);
-        pending = null;
-      }
-    }
-
-    // Sells that reacted to the recorded dev's sell would not happen before we sell: we are the dev.
-    if (plan && t.reaction && sells === 0) continue;
-    if (t.dev) {
-      if (plan) continue;
-      // Benchmark: the recorded dev's trades, sells as a share of what the dev held.
-      if (t.isBuy) {
-        buy(t.sol);
-        devRecorded += t.tokens;
-      } else {
-        sell(devRecorded > 0 ? Math.min(1, t.tokens / devRecorded) * tokens : t.tokens, t.ts);
-        devRecorded = Math.max(0, devRecorded - t.tokens);
-      }
-      continue;
-    }
-
+  /** Another wallet's trade: buys spend the recorded SOL, sells sell the recorded share of what the wallet holds. */
+  function other(t: FlowTrade) {
     if (t.isBuy) {
       const r = curve.buy(t.sol);
       creatorFees += r.creatorFee;
@@ -208,6 +191,64 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
       creatorFees += r.creatorFee;
       inflow -= r.sol;
       if (stall) recent.push({ ts: t.ts, sol: -r.sol });
+    }
+  }
+
+  const timeLadder = policy.timeLadder ?? [];
+  let timeRung = 0;
+  const moonExit = policy.moonbagExit ?? null;
+  /** Other wallets' net SOL after the main exit, for the moonbag's own stall. */
+  const after: { ts: number; sol: number }[] = [];
+  let afterSum = 0;
+
+  for (const t of coin.trades) {
+    if (t.ts - created > o.horizonSec || curve.complete) break;
+    if (plan && exited && moonExit && tokens > 0) {
+      while (after.length && after[0]!.ts <= t.ts - moonExit.windowSec) afterSum -= after.shift()!.sol;
+      if (t.ts - created >= moonExit.maxHoldSec) sell(tokens, created + moonExit.maxHoldSec);
+      else if (t.ts >= exitTs + moonExit.windowSec + latencySec && afterSum <= moonExit.minSol) sell(tokens, t.ts);
+    }
+    if (plan && !exited) {
+      while (timeRung < timeLadder.length && t.ts - created >= timeLadder[timeRung]!.atSec) {
+        sell(timeLadder[timeRung]!.share * launchBag, created + timeLadder[timeRung]!.atSec);
+        timeRung++;
+      }
+      // Timers fire before any trade that comes after them.
+      if (t.ts - created >= policy.maxHoldSec) exit(created + policy.maxHoldSec);
+      else if (policy.idleSec !== null && t.ts - lastBuyTs >= policy.idleSec + latencySec) exit(lastBuyTs + policy.idleSec);
+      else if (stallExitSlot !== null ? t.slot >= stallExitSlot : t.ts >= stallAt + latencySec) {
+        // A window that went quiet needs no trade to notice; the curve has not moved since the last one.
+        exit(stallExitSlot !== null ? t.ts : stallAt);
+      }
+      if (pending && t.slot >= pending.slot) {
+        sell(pending.tokens, t.ts);
+        pending = null;
+      }
+    }
+
+    // Sells that reacted to the recorded dev's sell wait for ours: we are the dev.
+    if (plan && t.reaction && sells === 0) {
+      deferred.push(t);
+      continue;
+    }
+    if (t.dev) {
+      if (plan) continue;
+      // Benchmark: the recorded dev's trades, sells as a share of what the dev held.
+      if (t.isBuy) {
+        buy(t.sol);
+        devRecorded += t.tokens;
+      } else {
+        sell(devRecorded > 0 ? Math.min(1, t.tokens / devRecorded) * tokens : t.tokens, t.ts);
+        devRecorded = Math.max(0, devRecorded - t.tokens);
+      }
+      continue;
+    }
+
+    const before = inflow;
+    other(t);
+    if (plan && exited && moonExit && tokens > 0) {
+      after.push({ ts: t.ts, sol: inflow - before });
+      afterSum += inflow - before;
     }
 
     if (plan && !exited) {

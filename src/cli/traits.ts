@@ -129,7 +129,17 @@ for (const trait of [...new Set(rows.map((r) => r.trait))]) {
   );
 }
 
-heading(`Launches matching playbook v${PLAYBOOK.version}'s launch rules (dev buy 2.95-4.5 SOL, tweet link, website) against the rest`);
+const r = PLAYBOOK.require;
+const rules = [
+  `dev buy ${PLAYBOOK.devBuyBands.join(' or ')} SOL`,
+  r.xLink === 'tweet' ? 'post link' : r.xLink === 'any' ? 'X link' : null,
+  r.website ? 'source website' : null,
+  r.maxPostAgeSec !== null ? `post at most ${r.maxPostAgeSec} s old` : null,
+  r.firstOnPost ? 'first launch on the post' : null,
+  r.skipFarmedAccounts ? 'account not farmed in the hour before' : null,
+  PLAYBOOK.minGapBetweenLaunchesSec ? `dev's previous launch ${PLAYBOOK.minGapBetweenLaunchesSec / 60}+ min earlier` : null,
+].filter(Boolean);
+heading(`Launches matching playbook v${PLAYBOOK.version}'s launch rules (${rules.join(', ')}) against the rest`);
 const scoreRow = (label: string, s: PolicyScore) => ({
   launches: label,
   n: s.launches,

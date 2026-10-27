@@ -4,7 +4,7 @@ import { CREATOR_FEE_RATE, CURVE_FEE_RATE, CURVE_MAX_PRICE_SOL, CURVE_REAL_TOKEN
 import type { TradeRow } from '../src/intel/devs.ts';
 import { pairedDifference, rankCorrelation } from '../src/sim/backtest.ts';
 import { PHANTOM, reconstructFlow } from '../src/sim/flow.ts';
-import { RECORDED_DEV, flowPolicy, ladderPolicy, timePolicy } from '../src/sim/policies.ts';
+import { RECORDED_DEV, flowMoonPolicy, flowPolicy, ladderPolicy, splitPolicy, timePolicy } from '../src/sim/policies.ts';
 import { DEFAULT_SIM, simulate, type SimCoin } from '../src/sim/simulate.ts';
 
 const T0 = 1_800_000_000;
@@ -221,6 +221,57 @@ test('sells that reacted to the recorded dev selling are skipped until we sell',
   const ours = expected.buy(1.0125).tokens;
   expected.buy(2);
   assert.ok(Math.abs(r.received - expected.sell(ours).sol) < 1e-9);
+});
+
+test('held-back reactions land right after our first sell and hit a moonbag', () => {
+  const bought = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 30 },
+  ]);
+  const trades = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 30 },
+    { wallet: DEV, slot: 110, ts: T0 + 5, sellTokens: bought[0]!.coins },
+    { wallet: 5, slot: 111, ts: T0 + 5, sellTokens: bought[1]!.coins }, // sells when the dev sells
+    { wallet: 6, slot: 140, ts: T0 + 15, buySol: 0.5 },
+  ]);
+  const r = simulate(coin(trades, 1.0125), timePolicy(10, 0.5), NO_COSTS);
+  // Our half sells at 10 s, wallet 5 dumps right after it, then wallet 6 buys; the moonbag is valued after all that.
+  const expected = new Curve();
+  const ours = expected.buy(1.0125).tokens;
+  const theirs = expected.buy(30).tokens;
+  expected.sell(ours / 2);
+  expected.sell(theirs);
+  expected.buy(0.5);
+  assert.equal(r.sells, 1);
+  assert.ok(Math.abs(r.bagSol - expected.sellValue(ours / 2)) < 1e-9);
+});
+
+test('a split plan sells equal parts at fixed times', () => {
+  const trades = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 2 },
+    { wallet: 6, slot: 120, ts: T0 + 8, buySol: 0.5 },
+  ]);
+  const r = simulate(coin(trades, 1.0125), splitPolicy(5, 1, 2), NO_COSTS);
+  assert.equal(r.sells, 2);
+  assert.equal(r.firstSellSec, 5);
+  assert.equal(r.bagSol, 0);
+});
+
+test('a moonbag with its own exit is sold once buying stalls again', () => {
+  const trades = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 30 },
+    { wallet: 6, slot: 130, ts: T0 + 12, buySol: 0.1 },
+    { wallet: 7, slot: 200, ts: T0 + 40, buySol: 0.1 },
+  ]);
+  const moon = simulate(coin(trades, 1.0125), flowMoonPolicy(10, 5, 0.25, 15, 300), NO_COSTS);
+  assert.equal(moon.sells, 2);
+  assert.equal(moon.bagSol, 0);
+  const held = simulate(coin(trades, 1.0125), flowPolicy(10, 5, 0.5, 120, 0.25), NO_COSTS);
+  assert.equal(held.sells, 1);
+  assert.ok(held.bagSol > 0);
 });
 
 test('a dev who buys first and sells everything loses at most the protocol fee both ways', () => {

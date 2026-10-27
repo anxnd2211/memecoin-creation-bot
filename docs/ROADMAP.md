@@ -17,14 +17,19 @@ screen's findings checked on hours they were not built from. Strong leads, not s
 - **On a normal curve a dev who buys in the create transaction can lose at most the fees** when selling the whole
   bag: about 1.9% of the dev buy plus about 0.02 SOL of rent and network fees. No one can sell back more tokens than
   they bought after the dev, so the price never falls below the dev's entry. Mayhem mode breaks this.
-- **The dev buy decides whether the sniper bots come.** Dev buys of 3–4.5 SOL (about 10–14% of supply) drew a median
-  7 SOL of outside buying in the first three seconds; dev buys just under 3 SOL drew a fraction of that, and dev buys
-  under 1 SOL drew nothing. Single-wallet launches buying 3–4.5 SOL made +1.4 SOL per launch on average, 84% of them
-  profitable, across 24 devs.
-- **Hold while buying lasts, then sell the whole bag at once.** On 3 SOL launches held out from the choice, holding
-  at least 10 seconds and selling once net buying stalls made +1.90 SOL per launch, against +1.59 for what the
-  recorded devs did and +0.89 for selling into the first buyers. Other wallets dump the moment a dev sells, so the
-  bag goes in one sell.
+- **The dev buy decides whether the sniper bots come, and how much of their buying we keep.** Sniper bots start
+  between 2.92 and 2.95 SOL into the curve and come as readily at 5 SOL as at 3. The same devs made 1.26 SOL a launch
+  more at 5 SOL than at 3 (90% interval +0.18 to +2.58), because a bigger bag takes a bigger share of the buying
+  that follows. The playbook buys 5 SOL; 2–3 SOL paid less even per SOL put in, and bigger buys did not deter
+  organic buyers.
+- **Speed from the post to the launch decides the rest.** Launches within 30 seconds of the post they link made
+  +3.49 SOL a launch (3 SOL+ dev buys); 2–5 minutes, +1.86; posts over 6 hours old, +0.57. The first launch on a post
+  made +3.11 against +1.57 for later ones, and the second launch arrives a median 24 seconds after the first.
+- **Hold while buying lasts, then sell the whole bag at once.** On 1,059 normal 3 SOL+ launches, each time block
+  held out in turn, holding at least 10 seconds and selling once net buying stalls made +2.65 SOL a launch against
+  +2.00 for what the recorded devs did. Most profitable devs split their sell into about four pieces within 30
+  seconds; replayed on the same coins, splitting lost 0.13 SOL a launch and keeping a moonbag gained nothing,
+  because other wallets dump the moment a dev sells.
 - **Links matter.** Launches linking the post their narrative came from, plus its original source as the website,
   drew buyers about twice as often as launches without. Launches meeting all of these rules made +2.35 SOL on
   average (in-sample). The rules and their evidence are in [PLAYBOOK.md](PLAYBOOK.md).
@@ -116,8 +121,11 @@ Remaining:
 - Narrative sources: X (tracked accounts plus keyword rules, through the official API), pump.fun and PumpSwap
   naming waves from our own feed, DexScreener trending, news. Narratives are clustered, scored for momentum and
   decay when they go quiet.
-- Speed matters in seconds: the profitable launches in the screen sold into flow that arrived within 10 seconds
-  of launch, so the path from a tweet to a launch-ready concept must be measured and kept short.
+- Speed matters in seconds: launches within 30 seconds of their post made twice what launches 2–5 minutes later
+  made, and being first on a post beat being second. The engine is a race from a post to a launch. It watches the
+  accounts whose posts become coins that draw buyers, a list ranked from our own feed (`python3 ml/launchers.py`),
+  sees each post through the X API as it is made, and has a concept launch-ready within seconds. Every stage is
+  timed in the dossier.
 - Crowding gate: before designing, count how many launches already use the narrative's words in the last 10
   minutes and whether one already has traction (Olympus: "how many others would independently build this exact
   thing?"). On 2026-10-27, launching a ticker that 1–2 others had launched in the previous 10 minutes made +0.84 SOL
@@ -132,14 +140,21 @@ Remaining:
 
 ## Phase 3: Launcher and exit manager (paper)
 
-Status: the exit backtest (`npm run simulate`) and the launch-trait report (`npm run traits`) are built, and the
-playbook is versioned in code (`src/playbook.ts`, now v1; [PLAYBOOK.md](PLAYBOOK.md)). The backtest replays
+Status: the exit backtest (`npm run simulate`), the launch-trait report (`npm run traits`), the launch-decision
+model and market reports (`ml/`, [MODELS.md](MODELS.md)) and the batch post-mortem (`npm run postmortem`) are
+built, and the playbook is versioned in code (`src/playbook.ts`, now v3; [PLAYBOOK.md](PLAYBOOK.md)). A local copy
+of pump.fun runs on LiteSVM with the real program binaries (`npm run paper-fork`, `src/paper/`): a recorded mainnet
+launch replays on it to the lamport, and our curve math matches the program to within a few lamports. A launch is
+what pump.fun's site sends today: `create_v2` (a Token-2022 coin, `is_mayhem_mode` false) and `buy_v2` in one
+transaction through an address lookup table. It costs about 0.009 SOL of rent on a wallet's first launch and 0.007
+after that. The backtest replays
 recorded launches with our position in place of the dev's under about 1,650 selling plans, models the dump other
 wallets make when a dev sells, chooses plans on time blocks they are then not scored on, and reports results against
 the recorded devs with paired noise intervals. Not built yet: the transactions, the launch board, the coin designer
 and paper mode.
 
-- Build create, buy and sell transactions with the official `@pump-fun/pump-sdk`; simulate every one.
+- Build create, buy and sell transactions with the official `@pump-fun/pump-sdk` (done on the fork); simulate every
+  one on the fork and against mainnet before sending.
 - Launch board, in order, each failing closed: narrative fresh; no crowding leader; no name or ticker collision
   with a live coin; compliance (no impersonation, no false claims, no implied endorsement); metadata complete;
   dev buy within limits; wallet balance and daily loss limit; simulation passes; owner approval.
@@ -148,8 +163,8 @@ and paper mode.
   a timer with a tight slippage limit, so it does not depend on reacting within a second. Candidates kept in the
   grid: tranches as net inflow crosses set levels, an exit when buying stops, and a moonbag kept only after the dev
   buy is recovered.
-- Dev buy: the backtest's band (3 SOL now), re-checked daily, because it depends on how other traders' sniper bots
-  are configured.
+- Dev buy: 5 SOL now, re-checked daily with `python3 ml/devbuy.py`, because it depends on how other traders'
+  sniper bots are configured.
 - Creator fees tracked as a separate revenue line and claimed on a schedule.
 - Paper mode: the full loop runs against the live market without signing, recording what each policy would have
   done.

@@ -24,17 +24,30 @@ intelligence.**
 
 | Need | Recommendation | Why |
 | --- | --- | --- |
-| Faster, gap-free stream | **Helius Business** (about $499/month). Since April 2026 it includes LaserStream gRPC (up to 10 connections) and Enhanced WebSockets | Sub-second latency, replay after disconnects, no public rate limits. Streaming is metered at 2 credits per 0.1 MB, and all of pump.fun is roughly 0.5–1.5 MB/s, so watch the credit dashboard in week one |
+| Faster stream, step 1 | **Helius Developer** ($49/month: 10M credits, 50 requests/s, Enhanced WebSockets with full transactions, staked sends) | Removes the public RPC's 1–35 s lag and throttling; full transactions show the real trader behind pooled routers. Enough for paper mode |
+| Faster stream, step 2 | **Helius Business** ($499/month: 100M credits, 200 requests/s, LaserStream gRPC on mainnet) | Sub-second gRPC with replay after disconnects. Needed for live launches if the feed lag on Developer stays over 2 s, because the v2 exit falls back to a timer beyond that. Streaming is metered (2 credits per 0.1 MB, and all of pump.fun is roughly 0.5–1.5 MB/s), so watch the credit dashboard in week one |
 | Flat-price alternative | A dedicated Yellowstone gRPC node (Triton One, Chainstack and others; dedicated Solana nodes are listed from about $2,900/month) | Cheaper than metered streaming if volume makes credits expensive |
 | Price data | A Jupiter API key (portal.jup.ag) | The free lite price API rate-limits at our volume (HTTP 429 seen); used to value trades in USDC, tokenized stocks and other quote assets |
 | 24/7 host | A Linux server near your RPC provider's region (Frankfurt, Amsterdam or New York): 8+ cores, 32 GB RAM, 1 TB NVMe | This Mac sleeps and runs on battery. On a server set `STORE_TRADES=all` and longer retention |
+
+### Getting the Helius key
+
+1. Go to dashboard.helius.dev and sign up (email, Google, GitHub or a Solana wallet). A free key is created at once.
+2. Open **Billing** (or **Plans**), choose **Developer**, and pay by card or crypto. Plans are monthly, cancel any
+   time; extra credits cost $5 per million.
+3. Open **API Keys**, copy the **Mainnet** RPC URL and the WebSocket URL. Optionally restrict the key to this
+   machine's IP under the key's settings.
+4. Copy `.env.example` to `.env` and set `SOLANA_RPC_HTTP` and `SOLANA_RPC_WS` to those URLs, with the key inside
+   them. Do this yourself in an editor: never paste the key into chat.
+5. Restart the observer (`npm run observe`). The log shows the feed lag; tell me the numbers and I will switch the
+   observer to full transactions.
 
 ## Phase 2 — narrative engine and coin designer
 
 | Need | What to get | `.env` key |
 | --- | --- | --- |
 | Claude API | API key from console.anthropic.com, with a monthly spend limit set | `ANTHROPIC_API_KEY` |
-| X (Twitter) data | X developer account on pay-per-use (the default since February 2026). Reads are about $0.005 per post; filtered stream on pay-per-use is limited (reported 1 connection, 1,000 rules). Full firehose is Enterprise only. This covers tracked accounts, keyword rules and pump.fun's own account (@pumpdotfun) | `X_BEARER_TOKEN` |
+| X (Twitter) data | X developer account (console.x.com) on pay-per-use, the default since February 2026: $0.005 per post read, $0.01 per user lookup, up to 3 million post reads a month. Used to see posts from the source accounts the moment they are made (the playbook launches within 30 s of a post). Our own feed already ranks the accounts, from launches' X links, at no cost | `X_BEARER_TOKEN` |
 | Image generation | One provider for coin art: OpenAI Images, Google Imagen, or Flux via fal.ai or Replicate. We pick one after testing quality | `IMAGE_API_KEY` |
 | Market trending | DexScreener and Jupiter public APIs: free, no key | — |
 
@@ -85,24 +98,23 @@ on their servers.
 This is the cost structure of the test plan, not investment advice, and I am not a licensed financial adviser.
 Only fund the launch wallet with SOL you can afford to lose entirely.
 
-The backtest ([EXIT-BACKTEST.md](EXIT-BACKTEST.md)) changed this plan: launches with a dev buy under 1 SOL drew
-almost no buyers, while about 3 SOL drew the sniper bots. It also showed that on a normal curve the dev position can
-lose at most the fees, and that the bag is sold about 20 seconds after launch, so launches run one at a time can
-reuse the same SOL.
+Playbook v2 ([PLAYBOOK.md](PLAYBOOK.md)) buys 5 SOL at launch: the same devs made more at 5 SOL than at 3, and on
+a normal curve the dev position can lose at most the fees. The bag is sold 10 seconds to 2 minutes after launch, so
+launches run one at a time reuse the same SOL.
 
 | Item | Per launch | Batch of 10, one launch at a time |
 | --- | --- | --- |
-| Dev buy, returned when the bag is sold about 20 s later | 3 SOL | 3 SOL, reused |
-| Most the dev position can lose on a normal curve (protocol fee both ways) | about 0.06 SOL | about 0.6 SOL |
-| Rent and network fees for the create transaction (measured: 0.010 and 0.025 SOL) | about 0.02 SOL | about 0.2 SOL |
+| Dev buy, returned when the bag is sold within 2 minutes | 5.06 SOL | 5.06 SOL, reused |
+| Most the dev position can lose on a normal curve (protocol fee both ways) | about 0.10 SOL | about 1.0 SOL |
+| Rent and network fees for the create transaction (on the fork: 0.0091 SOL on the first launch, 0.0071 after) | about 0.01 SOL | about 0.1 SOL |
 | Priority fees or tips for the create and the sell | about 0.005–0.02 SOL | up to 0.2 SOL |
-| Reserve for retries, a failed sell, and claiming creator fees | | about 1 SOL |
-| **Wallet funding** | | **about 5 SOL** |
+| Reserve for retries, a failed sell, and claiming creator fees | | about 1.5 SOL |
+| **Wallet funding** | | **about 8 SOL** |
 
-If none of the ten launches draws a buyer, the batch loses about 1 SOL: the fees, rent and tips above. The bound
-holds only for normal-mode launches whose whole bag is sold; a bug that leaves a bag unsold, or a stolen key, can
-lose more, which is why the wallet holds one batch at a time. Running launches in parallel needs 3 SOL for each open
-position.
+If none of the ten launches draws a buyer, the batch loses about 1.2–1.4 SOL: the fees, rent and tips above. The
+bound holds only for normal-mode launches whose whole bag is sold; a bug that leaves a bag unsold, or a stolen key,
+can lose more, which is why the wallet holds one batch at a time. Running launches in parallel needs 5 SOL for each
+open position.
 
 ## What stays with you
 

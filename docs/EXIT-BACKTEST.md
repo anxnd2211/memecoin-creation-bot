@@ -66,6 +66,35 @@ costs; the five exceptions were inferred trades and router accounts, not real lo
 bought. Mayhem mode does break it: pump.fun's agent sells newly minted supply, which is how losing Mayhem devs ended
 up selling at 9% of the launch price.
 
+## Round 3, 2026-10-28: the top devs' selling styles, and a bigger dev buy
+
+**Replay fix.** The dump other wallets make when a dev sells used to be skipped until our first sell and then lost.
+It is now held back and replayed right after our first sell. A plan that keeps a moonbag takes that dump, as it
+would live. This was the last thing flattering moonbag plans.
+
+**Two plan families added from what top devs do** (1,800 plans in the grid):
+
+- *split:* the bag in 2 or 4 equal parts at fixed times, 3–15 s after launch, 0.5–4 s apart.
+- *flow + moonbag:* the flow exit for 50–75% of the bag. The rest is sold once net buying over a 15–60 s window turns
+  to zero, or at 5–10 minutes.
+
+**Results:**
+
+| Normal launches, dev buy 2.95+ SOL | Launches | Best split vs v1 exit | Best flow + moonbag vs v1 exit | Chosen in held-out blocks vs recorded devs |
+| --- | --- | --- | --- | --- |
+| Any wallet setup | 1,059–1,072 | −0.13 (−0.22 to −0.04) | +0.02 (−0.03 to +0.08) | +0.65 (0.53–0.78), 4 blocks |
+| Dev buy 4.9–5.2 SOL | 256–481 | −0.33 (−0.52 to −0.16) | −0.08 (−0.23 to +0.04) | +0.84 (0.60–1.10), 3 blocks |
+| Single wallet | 403–407 | −0.14 (−0.24 to −0.03) | −0.03 (−0.11 to +0.06) | +0.18 (−0.04 to +0.39), 3 blocks |
+
+Every held-out block chose the flow exit with a whole-bag sell, except one single-wallet block, which chose a 15 s
+timer. With 3–5 s windows the agreement between blocks was 0.97–0.99. The playbook's v2 exit uses a 5 s window
+instead of 10 s: +0.09 SOL a launch (0.02–0.15).
+
+**Dev buy.** The replay can hold the outside flow fixed and change only our bag. For launches recorded at 3 SOL, a
+5 SOL bag would have made +2.57 instead of +1.79, and lost at most 0.117 instead of 0.079. Whether snipers keep coming
+at 5 SOL is a question about other traders, so it comes from the data instead: the same devs at 5 and 3 SOL, in
+[MODELS.md](MODELS.md).
+
 ## Round 2, 2026-10-27 evening: reactions to the dev, and holding while buying lasts
 
 1,227 single-wallet normal launches recorded from 04:22 to 19:38 UTC (the observer recorded nothing from 07:58 to

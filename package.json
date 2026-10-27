@@ -19,11 +19,18 @@
     "wallet-history": "node --disable-warning=ExperimentalWarning src/cli/walletHistory.ts",
     "simulate": "node --disable-warning=ExperimentalWarning src/cli/simulate.ts",
     "backfill-metadata": "node --disable-warning=ExperimentalWarning src/cli/backfillMetadata.ts",
-    "traits": "node --disable-warning=ExperimentalWarning src/cli/traits.ts"
+    "traits": "node --disable-warning=ExperimentalWarning src/cli/traits.ts",
+    "export-launches": "node --disable-warning=ExperimentalWarning src/cli/exportLaunches.ts",
+    "postmortem": "node --disable-warning=ExperimentalWarning src/cli/postmortem.ts",
+    "export-paths": "node --disable-warning=ExperimentalWarning src/cli/exportPaths.ts",
+    "paper-fork": "node --disable-warning=ExperimentalWarning src/cli/paperFork.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
-    "@solana/web3.js": "^1.98.2"
+    "@pump-fun/pump-sdk": "^4.3.1",
+    "@solana/kit": "^8.5.0",
+    "@solana/web3.js": "^1.98.2",
+    "litesvm": "^1.6.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

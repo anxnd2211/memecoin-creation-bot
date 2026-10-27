@@ -32,6 +32,14 @@ const LADDER = {
 };
 const FLOW = { minHold: [0, 5, 10, 20, 30], window: [3, 5, 10, 20], minSol: [0, 0.5, 1], hold: [60, 120, 300], moonbag: [0, 0.1] };
 const LADDER_STEPS = [1, 2, 4, 8];
+const SPLIT = { startSec: [3, 5, 8, 10, 15], stepSec: [0.5, 1, 2, 4], parts: [2, 4] };
+const FLOW_MOON = {
+  minHold: [5, 10, 20],
+  window: [5, 10, 20],
+  moonbag: [0.25, 0.5],
+  window2: [15, 30, 60],
+  hold2: [300, 600],
+};
 
 const idleName = (s: number | null) => (s === null ? '' : `, idle ${s}s`);
 
@@ -90,6 +98,40 @@ export function ladderPolicy(baseSol: number, maxHoldSec: number, idleSec: numbe
   };
 }
 
+/** Sells the launch bag in equal parts at fixed times: the quick split most profitable devs use. */
+export function splitPolicy(startSec: number, stepSec: number, parts: number): ExitPolicy {
+  const times = Array.from({ length: parts }, (_, i) => startSec + i * stepSec);
+  return {
+    name: `split in ${parts} at ${times.join('/')}s`,
+    devBuySol: null,
+    ladder: [],
+    timeLadder: times.map((atSec) => ({ atSec, share: 1 / parts })),
+    maxHoldSec: times.at(-1)!,
+    idleSec: null,
+    moonbagShare: 0,
+  };
+}
+
+/**
+ * The flow exit for most of the bag, then the moonbag sold once buying stalls again over a longer window: devs that
+ * kept part of the bag and sold it in later tranches.
+ */
+export function flowMoonPolicy(
+  minHoldSec: number,
+  windowSec: number,
+  moonbagShare: number,
+  window2Sec: number,
+  hold2Sec: number,
+): ExitPolicy {
+  return {
+    ...flowPolicy(minHoldSec, windowSec, 0.5, 120, moonbagShare),
+    name:
+      `hold ${minHoldSec}s+, sell ${Math.round((1 - moonbagShare) * 100)}% when ${windowSec}s net buying <= 0.5 SOL, ` +
+      `rest when ${window2Sec}s net buying <= 0 or at ${hold2Sec}s`,
+    moonbagExit: { windowSec: window2Sec, minSol: 0, maxHoldSec: hold2Sec },
+  };
+}
+
 /** Every combination of each family's parameter values. */
 function product(sizes: number[]): number[][] {
   return sizes.reduce<number[][]>((acc, n) => acc.flatMap((a) => Array.from({ length: n }, (_, i) => [...a, i])), [[]]);
@@ -107,6 +149,26 @@ export function policyGrid(): GridPolicy[] {
   for (const at of product([FLOW.minHold.length, FLOW.window.length, FLOW.minSol.length, FLOW.hold.length, FLOW.moonbag.length])) {
     const p = flowPolicy(FLOW.minHold[at[0]!]!, FLOW.window[at[1]!]!, FLOW.minSol[at[2]!]!, FLOW.hold[at[3]!]!, FLOW.moonbag[at[4]!]!);
     out.push({ ...p, family: 'flow', at });
+  }
+  for (const at of product([SPLIT.startSec.length, SPLIT.stepSec.length, SPLIT.parts.length])) {
+    const p = splitPolicy(SPLIT.startSec[at[0]!]!, SPLIT.stepSec[at[1]!]!, SPLIT.parts[at[2]!]!);
+    out.push({ ...p, family: 'split', at });
+  }
+  for (const at of product([
+    FLOW_MOON.minHold.length,
+    FLOW_MOON.window.length,
+    FLOW_MOON.moonbag.length,
+    FLOW_MOON.window2.length,
+    FLOW_MOON.hold2.length,
+  ])) {
+    const p = flowMoonPolicy(
+      FLOW_MOON.minHold[at[0]!]!,
+      FLOW_MOON.window[at[1]!]!,
+      FLOW_MOON.moonbag[at[2]!]!,
+      FLOW_MOON.window2[at[3]!]!,
+      FLOW_MOON.hold2[at[4]!]!,
+    );
+    out.push({ ...p, family: 'flow+moonbag', at });
   }
   for (const at of product([LADDER.base.length, LADDER.hold.length, LADDER.idle.length, LADDER.moonbag.length])) {
     const p = ladderPolicy(LADDER.base[at[0]!]!, LADDER.hold[at[1]!]!, LADDER.idle[at[2]!]!, LADDER.moonbag[at[3]!]!);

@@ -6,3 +6,5 @@ data/
 *.keypair.json
 keys/
 .DS_Store
+__pycache__/
+.claude/worktrees/

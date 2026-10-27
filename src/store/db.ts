@@ -84,6 +84,21 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE INDEX IF NOT EXISTS signals_ts ON signals(ts);
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
+
+-- The bot's own launches, paper or live: one dossier each, written by the launcher and read by the post-mortem.
+CREATE TABLE IF NOT EXISTS our_launches (
+  mint TEXT PRIMARY KEY,
+  mode TEXT NOT NULL,                 -- paper | live
+  created_ts INTEGER NOT NULL,
+  playbook INTEGER NOT NULL,
+  narrative TEXT, source_post TEXT, post_age_sec REAL, first_on_post INTEGER,
+  dev_buy_sol REAL NOT NULL,
+  exit_plan TEXT NOT NULL, feed_lag_sec REAL,
+  forecast_drew REAL, forecast_pnl REAL,
+  pnl_sol REAL, drew INTEGER, first_sell_sec REAL,
+  notes TEXT
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS our_launches_created ON our_launches(created_ts);
 `;
 
 export interface TradeRow {

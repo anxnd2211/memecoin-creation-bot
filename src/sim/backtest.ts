@@ -92,7 +92,7 @@ export function runPolicy(coins: BacktestCoin[], policy: ExitPolicy, o?: SimOpti
  * how other wallets react to our first partial sell, and a full sell keeps the dev's loss bounded by the fees.
  */
 export const SIMPLER_WITHIN_SOL = 0.005;
-const FAMILY_COMPLEXITY = ['time', 'dump', 'flow', 'ladder'];
+const FAMILY_COMPLEXITY = ['time', 'dump', 'split', 'flow', 'ladder', 'flow+moonbag'];
 
 export interface PlanChoice {
   chosen: GridPolicy;
