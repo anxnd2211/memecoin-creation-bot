@@ -19,7 +19,10 @@ npm run report -- --json # same data as JSON, for the Phase 5 post-mortems
 npm run inspect -- <wallet or mint>
 npm run devs             # dev screen: what each dev spent, took out and earned in fees, and how they sold
 npm run devs -- --clean --hours 2   # only coins whose launcher and fees were recorded live
+npm run devs -- --since 2026-10-27T05:25Z --until 2026-10-27T07:45Z --clean   # a fixed window
 npm run wallet-history -- <wallet>  # on-chain age, transaction count and first funder of a wallet
+npm run simulate         # exit backtest: our dev position replayed under ~1,300 selling plans
+npm run simulate -- --folds 3       # each time block held out in turn
 npm test
 ```
 
@@ -54,11 +57,12 @@ Run `npm run update-idl` when pump.fun announces a program upgrade.
 ## Layout
 
 ```
-src/chain      decoder, live stream, confirmation gate, PumpSwap pool resolver
+src/chain      decoder, live stream, confirmation gate, PumpSwap pool resolver, bonding-curve math
 src/intel      engine, positions, archetypes, report queries, dev screen
 src/market     SOL and quote prices, coin metadata fetcher
+src/sim        trade-order rebuild, launch replay, selling plans, backtest scoring
 src/store      SQLite schema and writes
-src/cli        observe, report, inspect, devs, wallet-history, backfill-launchers, update-idl
+src/cli        observe, report, inspect, devs, simulate, wallet-history, backfill-launchers, update-idl
 idl/           pump.fun program IDLs (from github.com/pump-fun/pump-public-docs)
 test/          unit tests and real mainnet transaction fixtures
 ```

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { analyseCoin, curveSellValue, type CoinInfo, type TradeRow } from '../src/intel/devs.ts';
+import { curveSellValue } from '../src/chain/curve.ts';
+import { analyseCoin, isSingleWalletClean, type CoinInfo, type TradeRow } from '../src/intel/devs.ts';
 
 const T0 = 1_800_000_000;
 const LAUNCH_PRICE = 30 / 1_073_000_000;
@@ -102,6 +103,20 @@ test('the Mayhem agent is reported apart and never counts as an organic buyer', 
   assert.equal(c.agentNetSol, -2.5);
   assert.equal(c.transferSellers, 0);
   assert.ok(c.wallets.every((w) => w.wallet !== AGENT));
+});
+
+test('a dev selling tokens other wallets bought is not single-wallet clean', () => {
+  const trades = [
+    tr(1, T0, 100, true, 0.5, 17_000_000),
+    tr(7, T0 + 4, 110, true, 3, 80_000_000, 45), // buys, then passes its tokens to the dev
+    tr(1, T0 + 9, 125, false, 3.3, 97_000_000, 30),
+  ];
+  const c = analyseCoin(info({ launcher: 'Creator' }), trades, new Set([1]));
+  assert.equal(c.bundleLike, false);
+  assert.equal(c.devSoldUnbought, true);
+  assert.equal(isSingleWalletClean(c), false);
+  const honest = analyseCoin(info({ launcher: 'Creator' }), trades.slice(0, 2).concat(tr(1, T0 + 9, 125, false, 0.6, 17_000_000, 40)), new Set([1]));
+  assert.equal(isSingleWalletClean(honest), true);
 });
 
 test('known sniper bots in the launch slot are not counted as the dev\'s wallets', () => {

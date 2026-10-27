@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { CURVE_MAX_PRICE_SOL, STANDARD_LAUNCH_MCAP_SOL, curveSellValue } from '../chain/curve.ts';
 import { MAYHEM_AGENT } from '../chain/programs.ts';
 import { SNIPE_WINDOW_SEC } from './classify.ts';
 import { isBuyout, mean, median, share } from './reports.ts';
@@ -26,20 +27,6 @@ export const ACTIVE_MIN_BUY_SOL = 1;
 /** Seconds after launch at which the trade-flow buckets end. */
 export const FLOW_BUCKETS = [3, 10, 30, 60, 120, 300, 900, 3600] as const;
 
-/** pump.fun's standard SOL curve starts at 30 virtual SOL against 1.073B virtual tokens. */
-const CURVE_K = 30 * 1_073_000_000;
-const STANDARD_LAUNCH_MCAP_SOL = 30 / 1.073;
-/** The standard curve completes at about 115 virtual SOL against 279.9M virtual tokens; any higher price is PumpSwap. */
-const CURVE_MAX_PRICE_SOL = 115.005 / 279_900_000;
-const CURVE_SELL_FEE = 0.0125;
-
-/** SOL that selling `tokens` into a standard curve at `price` returns after fees. */
-export function curveSellValue(price: number, tokens: number): number {
-  if (!(price > 0) || !(tokens > 0)) return 0;
-  const vSol = Math.sqrt(CURVE_K * price);
-  const vTok = Math.sqrt(CURVE_K / price);
-  return Math.max(0, vSol - CURVE_K / (vTok + tokens)) * (1 - CURVE_SELL_FEE);
-}
 
 export interface TradeRow {
   ts: number;
@@ -131,6 +118,11 @@ export interface DevCoin {
   /** Dev result plus the wallets in the same slot or selling with the dev. */
   clusterPnl: number;
   bundleLike: boolean;
+  /**
+   * The dev sold over 1% more tokens than it bought on the curve: other wallets bought them and passed them to the
+   * dev to sell, a bundle the slot tests do not catch.
+   */
+  devSoldUnbought: boolean;
   active: boolean;
   /** Per-bucket flow; index i covers ages up to FLOW_BUCKETS[i]. */
   flow: { buys: number; sells: number; buySol: number; sellSol: number; newBuyers: number }[];
@@ -376,6 +368,7 @@ export function analyseCoin(
     agentNetSol,
     clusterPnl: clusterPnl + feesSol,
     bundleLike: sameSlotBuyers >= 2 || coordinatedSellers >= 2,
+    devSoldUnbought: devSold > devBought * 1.01,
     active: organicBuyers >= ACTIVE_MIN_BUYERS && organicBuySol >= ACTIVE_MIN_BUY_SOL,
     flow,
     aroundFirstSell,
@@ -412,11 +405,25 @@ interface CoinDbRow {
   launcher_id: number | null;
 }
 
+/** A launch with its ordered curve trades, ready to screen or replay. */
+export interface LoadedLaunch {
+  info: CoinInfo;
+  trades: TradeRow[];
+  /** The creator and, when it differs, the wallet that signed the launch. */
+  devIds: Set<number>;
+}
+
 /**
- * Screens SOL-quoted launches created in [sinceTs, untilTs], skipping launch buyouts. With `recordedLive`, only coins
- * whose launching wallet and creator fees the observer recorded itself.
+ * Loads SOL-quoted launches created in [sinceTs, untilTs], skipping launch buyouts. With `recordedLive`, only coins
+ * whose launching wallet and creator fees the observer recorded itself. Also returns pump.fun's Mayhem agent and the
+ * sniper bots seen across these launches.
  */
-export function screenLaunches(db: DatabaseSync, sinceTs: number, untilTs: number, recordedLive = false): DevCoin[] {
+export function loadLaunches(
+  db: DatabaseSync,
+  sinceTs: number,
+  untilTs: number,
+  recordedLive = false,
+): { launches: LoadedLaunch[]; agentIds: Set<number>; snipers: Set<number> } {
   const feesSince = Number(
     (db.prepare("SELECT value FROM meta WHERE key = 'creator_fees_since'").get() as { value: string } | undefined)?.value ??
       Infinity,
@@ -439,7 +446,7 @@ export function screenLaunches(db: DatabaseSync, sinceTs: number, untilTs: numbe
   const tradeQuery = db.prepare(
     'SELECT ts, slot, wallet_id, is_buy, sol, coins, mcap_sol FROM trades WHERE mint_id = ? ORDER BY ts, slot, rowid',
   );
-  const loaded = coins
+  const launches: LoadedLaunch[] = coins
     .filter((c) => !isBuyout(c) && c.mint_id !== null)
     .map((c) => {
       const rows = tradeQuery.all(c.mint_id) as { ts: number; slot: number; wallet_id: number; is_buy: number; sol: number | null; coins: number; mcap_sol: number | null }[];
@@ -447,20 +454,41 @@ export function screenLaunches(db: DatabaseSync, sinceTs: number, untilTs: numbe
         .filter((r) => r.sol !== null)
         .map((r) => ({ ts: r.ts, slot: r.slot, wallet: r.wallet_id, isBuy: r.is_buy === 1, sol: r.sol!, coins: r.coins, mcap: r.mcap_sol }));
       const devIds = new Set([c.creator_id, c.launcher_id].filter((id): id is number => id !== null));
-      return { c, trades, devIds };
+      const metaKnown = c.meta_status === 'done';
+      const info: CoinInfo = {
+        mint: c.mint,
+        symbol: c.symbol,
+        name: c.name,
+        creator: c.creator,
+        launcher: c.launcher,
+        createdTs: c.created_ts,
+        launchMcapSol: c.launch_price_sol !== null ? c.launch_price_sol * c.total_supply : null,
+        lastPriceSol: c.last_price_sol,
+        peakMcapSol: c.peak_mcap_sol,
+        peakTs: c.peak_ts,
+        // A graduation missed during a feed gap still shows as a pool or a price the curve cannot reach.
+        graduatedTs:
+          c.graduated_ts ??
+          (c.pool !== null || (c.last_price_sol ?? 0) > CURVE_MAX_PRICE_SOL * 1.01 ? (c.peak_ts ?? c.created_ts) : null),
+        volumeSol: c.volume_sol,
+        isMayhem: c.is_mayhem === 1,
+        creatorFeesSol: c.created_ts >= feesSince ? c.creator_fees_sol : null,
+        socials: metaKnown ? { twitter: !!c.twitter, telegram: !!c.telegram, website: !!c.website } : null,
+      };
+      return { info, trades, devIds };
     });
 
   // Sniper bots: wallets in the launch window of several devs' coins, or buying many coins.
   const windowDevs = new Map<number, Set<string>>();
   const coinsBought = new Map<number, number>();
-  for (const { c, trades, devIds } of loaded) {
+  for (const { info, trades, devIds } of launches) {
     const seen = new Set<number>();
     for (const t of trades) {
       if (!t.isBuy || devIds.has(t.wallet) || seen.has(t.wallet)) continue;
       seen.add(t.wallet);
       coinsBought.set(t.wallet, (coinsBought.get(t.wallet) ?? 0) + 1);
-      if (t.ts - c.created_ts <= SNIPE_WINDOW_SEC) {
-        windowDevs.set(t.wallet, (windowDevs.get(t.wallet) ?? new Set()).add(c.launcher ?? c.creator));
+      if (t.ts - info.createdTs <= SNIPE_WINDOW_SEC) {
+        windowDevs.set(t.wallet, (windowDevs.get(t.wallet) ?? new Set()).add(info.launcher ?? info.creator));
       }
     }
   }
@@ -468,40 +496,13 @@ export function screenLaunches(db: DatabaseSync, sinceTs: number, untilTs: numbe
   for (const [w, devs] of windowDevs) {
     if (devs.size >= SNIPER_MIN_DEVS || (coinsBought.get(w) ?? 0) >= SNIPER_MIN_COINS) snipers.add(w);
   }
+  return { launches, agentIds, snipers };
+}
 
-  const out: DevCoin[] = [];
-  for (const { c, trades, devIds } of loaded) {
-    const metaKnown = c.meta_status === 'done';
-    out.push(
-      analyseCoin(
-        {
-          mint: c.mint,
-          symbol: c.symbol,
-          name: c.name,
-          creator: c.creator,
-          launcher: c.launcher,
-          createdTs: c.created_ts,
-          launchMcapSol: c.launch_price_sol !== null ? c.launch_price_sol * c.total_supply : null,
-          lastPriceSol: c.last_price_sol,
-          peakMcapSol: c.peak_mcap_sol,
-          peakTs: c.peak_ts,
-          // A graduation missed during a feed gap still shows as a pool or a price the curve cannot reach.
-          graduatedTs:
-            c.graduated_ts ??
-            (c.pool !== null || (c.last_price_sol ?? 0) > CURVE_MAX_PRICE_SOL * 1.01 ? (c.peak_ts ?? c.created_ts) : null),
-          volumeSol: c.volume_sol,
-          isMayhem: c.is_mayhem === 1,
-          creatorFeesSol: c.created_ts >= feesSince ? c.creator_fees_sol : null,
-          socials: metaKnown ? { twitter: !!c.twitter, telegram: !!c.telegram, website: !!c.website } : null,
-        },
-        trades,
-        devIds,
-        agentIds,
-        snipers,
-      ),
-    );
-  }
-  return out;
+/** Screens the launches `loadLaunches` returns; see there for the arguments. */
+export function screenLaunches(db: DatabaseSync, sinceTs: number, untilTs: number, recordedLive = false): DevCoin[] {
+  const { launches, agentIds, snipers } = loadLaunches(db, sinceTs, untilTs, recordedLive);
+  return launches.map((l) => analyseCoin(l.info, l.trades, l.devIds, agentIds, snipers));
 }
 
 /** Wallet id -> archetype labels, for wallets that have any. */
@@ -542,6 +543,7 @@ function profile(coins: DevCoin[]) {
     medianOrganicBuyers: median(coins.map((c) => c.organicBuyers)),
     medianOrganicBuySol: median(coins.map((c) => c.organicBuySol)),
     bundleLikeShare: share(coins.map((c) => c.bundleLike)),
+    devSoldUnboughtShare: share(coins.map((c) => c.devSoldUnbought)),
     tokensMovedShare: share(coins.map((c) => c.transferSellSol >= 0.1)),
     mayhemShare: share(coins.map((c) => c.info.isMayhem)),
     medianAgentSolBeforeSell: median(coins.filter((c) => c.info.isMayhem && c.firstSell).map((c) => c.agentBuySolBeforeSell)),
@@ -556,10 +558,10 @@ function profile(coins: DevCoin[]) {
 
 /**
  * The way this project launches: one wallet that is both creator and signer, no wallets buying in the launch slot or
- * selling alongside it, and no tokens moved off to other wallets to sell.
+ * selling alongside it, and no tokens passed to the dev by other wallets to sell.
  */
 export function isSingleWalletClean(c: DevCoin): boolean {
-  return !c.bundleLike && (c.info.launcher === null || c.info.launcher === c.info.creator);
+  return !c.bundleLike && !c.devSoldUnbought && (c.info.launcher === null || c.info.launcher === c.info.creator);
 }
 
 /** Sell style, first-sell timing and pre-sell inflow against the dev's result, for one group of coins. */

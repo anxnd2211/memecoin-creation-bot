@@ -10,13 +10,25 @@ const opt = (name: string, fallback: number) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? Number(args[i + 1]) : fallback;
 };
+/** A date option as unix seconds, or null when absent. */
+const time = (name: string): number | null => {
+  const i = args.indexOf(`--${name}`);
+  if (i < 0) return null;
+  const ms = Date.parse(args[i + 1] ?? '');
+  if (Number.isNaN(ms)) {
+    console.error(`--${name} expects a date such as 2026-10-27T05:25Z, got ${args[i + 1]}`);
+    process.exit(1);
+  }
+  return Math.floor(ms / 1000);
+};
 
 if (flag('help')) {
-  console.log(`usage: npm run devs -- [--hours 24] [--min-age 15] [--limit 12] [--clean] [--json]
+  console.log(`usage: npm run devs -- [--hours 24 | --since <date> [--until <date>]] [--min-age 15] [--limit 12] [--clean] [--json]
 
-Screens launches from the last --hours that are at least --min-age minutes old: what each creator spent, took
-out and earned in creator fees, when and into what they sold, and how the rest of the market traded those coins.
---clean keeps only coins whose launching wallet and creator fees the observer recorded live.`);
+Screens launches from the last --hours (or between --since and --until) that are at least --min-age minutes old:
+what each creator spent, took out and earned in creator fees, when and into what they sold, and how the rest of
+the market traded those coins. --clean keeps only coins whose launching wallet and creator fees the observer
+recorded live.`);
   process.exit(0);
 }
 
@@ -31,7 +43,9 @@ const nowTs = Math.floor(Date.now() / 1000);
 const hours = opt('hours', 24);
 const minAge = opt('min-age', 15);
 const limit = opt('limit', 12);
-const coins = screenLaunches(db, nowTs - hours * 3600, nowTs - minAge * 60, flag('clean'));
+const sinceTs = time('since') ?? nowTs - hours * 3600;
+const untilTs = Math.min(time('until') ?? Infinity, nowTs - minAge * 60);
+const coins = screenLaunches(db, sinceTs, untilTs, flag('clean'));
 const report = devScreenReport(coins, archetypesById(db), limit);
 const solUsd: number = observerStatus(db)?.solUsd ?? 0;
 
@@ -90,6 +104,7 @@ function profiles(cols: Record<string, Profile>): void {
     ['median organic buyers', (p) => num(p.medianOrganicBuyers, 0)],
     ['median organic buy SOL', (p) => num(p.medianOrganicBuySol)],
     ['bundle-like', (p) => pct(p.bundleLikeShare)],
+    ['dev sold tokens other wallets bought', (p) => pct(p.devSoldUnboughtShare)],
     ['sells with no recorded buy (mostly routers)', (p) => pct(p.tokensMovedShare)],
     ['Mayhem mode', (p) => pct(p.mayhemShare)],
     ['median Mayhem-agent SOL before first dev sell', (p) => num(p.medianAgentSolBeforeSell)],
@@ -103,7 +118,8 @@ function profiles(cols: Record<string, Profile>): void {
 }
 
 const s = report.summary;
-heading(`Dev screen: launches ${hours}h back, at least ${minAge}m old`);
+const utc = (ts: number) => new Date(ts * 1000).toISOString().slice(0, 16).replace('T', ' ');
+heading(`Dev screen: launches ${utc(sinceTs)} to ${utc(untilTs)} UTC, at least ${minAge}m old`);
 console.log(
   `  ${s.launches} launches screened (launch buyouts and non-SOL coins excluded); ${s.active} had trading activity ` +
     `(${report.thresholds.activeMinBuyers}+ buyers after the launch window, ${report.thresholds.activeMinBuySol}+ SOL).`,
@@ -126,7 +142,8 @@ profiles(report.byMode);
 
 heading('Single-wallet clean devs (how this project launches) vs. the rest');
 console.log(
-  '  Clean = creator and signer are one wallet, and fewer than 2 other wallets bought in the launch slot or sold with the dev.',
+  '  Clean = creator and signer are one wallet, fewer than 2 other wallets bought in the launch slot or sold with the dev,' +
+    ' and the dev sold no tokens it did not buy.',
 );
 profiles({ 'single-wallet clean': report.cleanVsBundled.clean, rest: report.cleanVsBundled.bundled });
 

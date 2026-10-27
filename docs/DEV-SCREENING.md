@@ -31,7 +31,9 @@ sell landed within 3 slots (about a second) of a dev sell. Two or more makes the
 wallets is the "cluster" result.
 
 **Single-wallet clean devs** are the cohort that launches the way this project will: one wallet as creator and
-signer, and no bundle-like wallets. Their patterns are the ones we can copy.
+signer, no bundle-like wallets, and no tokens sold that the dev did not buy (other wallets buying and passing tokens
+to the dev is a bundle the slot tests miss; added after the findings below were recorded). Their patterns are the
+ones we can copy.
 
 **pump.fun's Mayhem agent.** Coins launched in Mayhem mode are traded for 24 hours by pump.fun's own agent
 (program `MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e`, trading as account `BwWK17…de6s`), fee-free and with extra
@@ -53,6 +55,9 @@ three quarters of busy normal coins looked bundled; with it, about half do, and 
 ever appeared with one dev and bought at most 3 coins) puts likely bundles at about a quarter.
 
 ## Findings, 2026-10-27
+
+These were checked the same day on the following hours, which they were not built from; most held, and the
+comparison is in [EXIT-BACKTEST.md](EXIT-BACKTEST.md).
 
 Run: `npm run devs -- --hours 2 --min-age 15 --clean` at 05:40 UTC. 1,009 SOL-quoted launches from 04:22 to 05:25
 UTC (launch buyouts excluded), each with its signer and creator fees recorded live; 160 had trading activity. One

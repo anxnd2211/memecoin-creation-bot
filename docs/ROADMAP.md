@@ -10,8 +10,20 @@ owner's wallet, never by the bot's developer tooling.
 
 ## What the market data says about making money as a dev
 
-From the dev screen (`npm run devs`, method and findings in [DEV-SCREENING.md](DEV-SCREENING.md); one hour of
-clean data on 2026-10-27, so leads rather than settled facts):
+From the dev screen (`npm run devs`, [DEV-SCREENING.md](DEV-SCREENING.md)) and the exit backtest
+(`npm run simulate`, [EXIT-BACKTEST.md](EXIT-BACKTEST.md)); about four hours of clean data on 2026-10-27, with the
+screen's findings checked on hours they were not built from. Strong leads, not settled facts:
+
+- **On a normal curve a dev who buys in the create transaction can lose at most the fees** when selling the whole
+  bag: about 1.9% of the dev buy plus about 0.02 SOL of rent and network fees. No one can sell back more tokens than
+  they bought after the dev, so the price never falls below the dev's entry. Mayhem mode breaks this.
+- **The dev buy decides whether the sniper bots come.** Dev buys of 3–4.5 SOL (about 10–14% of supply) drew a median
+  7 SOL of outside buying in the first three seconds; dev buys just under 3 SOL drew a fraction of that, and dev buys
+  under 1 SOL drew nothing. Single-wallet launches buying 3–4.5 SOL made +1.4 SOL per launch on average, 84% of them
+  profitable, across 24 devs.
+- **Hold the dev bag about 20 seconds, then sell everything.** In replays held out from the choice, that beat selling
+  into the first buyers by about 0.1–0.2 SOL per launch and edged what the recorded devs did; in the newest half hour
+  the recorded devs, who sold in steps over two minutes, did better, so the exit is re-fitted daily.
 
 - **The dev's profit comes out of other wallets' net inflow before the dev sells.** Under 0.5 SOL of net inflow
   before the first dev sell, 39% of devs made money; 0.5–2 SOL, 91%; above 2 SOL, all of them. The exit manager is
@@ -82,6 +94,8 @@ Built:
 
 Remaining:
 
+- Keep the observer recording around the clock: on 2026-10-27 it recorded nothing from 07:58 to 11:34 UTC while the
+  Mac slept. A small always-on server, or the Mac kept awake and plugged in.
 - gRPC source (Helius LaserStream or Yellowstone) with replay after disconnects.
 - Full transactions per trade (the signer, token transfers), which the log stream does not carry: some pooled
   routers name one shared account for many traders, and tokens moved between wallets are invisible today.
@@ -108,25 +122,29 @@ Remaining:
 
 ## Phase 3: Launcher and exit manager (paper)
 
+Status: the exit backtest is built (`npm run simulate`). It replays recorded launches with our position in place of
+the dev's under about 1,300 selling plans, chooses plans on time blocks they are then not scored on, and reports
+results against the recorded devs with paired noise intervals. Its first playbook, in
+[EXIT-BACKTEST.md](EXIT-BACKTEST.md): normal mode, a 3 SOL dev buy, hold about 20 seconds, sell the whole bag.
+
 - Build create, buy and sell transactions with the official `@pump-fun/pump-sdk`; simulate every one.
 - Launch board, in order, each failing closed: narrative fresh; no crowding leader; no name or ticker collision
   with a live coin; compliance (no impersonation, no false claims, no implied endorsement); metadata complete;
   dev buy within limits; wallet balance and daily loss limit; simulation passes; owner approval.
-- Exit manager, from the dev screen:
-  - Sell in tranches as net outside inflow crosses set levels; tranche selling was the most reliable profitable
-    style in the screen.
-  - No-inflow exit: if net inflow stays under a floor for a set time, exit early, since most losing devs sold
-    late into a curve others had already left.
-  - Keep a moonbag only after the dev buy is recovered.
-  - Size the dev buy to the expected inflow: a dev buy that drew under 0.5 SOL of outside inflow lost about 30–40%
-    of itself at the median.
+- Exit manager: the plan chosen by the backtest, re-fitted daily with `npm run simulate -- --folds 3` and changed
+  only when a new plan beats it on the pooled held-out blocks beyond the noise interval. The sell is pre-signed on
+  a timer with a tight slippage limit, so it does not depend on reacting within a second. Candidates kept in the
+  grid: tranches as net inflow crosses set levels, an exit when buying stops, and a moonbag kept only after the dev
+  buy is recovered.
+- Dev buy: the backtest's band (3 SOL now), re-checked daily, because it depends on how other traders' sniper bots
+  are configured.
 - Creator fees tracked as a separate revenue line and claimed on a schedule.
 - Paper mode: the full loop runs against the live market without signing, recording what each policy would have
   done.
 
 ## Phase 4: Live launches, small and gated
 
-- One public launch wallet, the same wallet as creator and signer. The owner approves each launch from Telegram;
+- One public launch wallet, the same wallet as creator and signer, launching in normal mode (never Mayhem). The owner approves each launch from Telegram;
   the exit plan approved with it runs automatically, because tranche sells have to happen within seconds.
 - Hard limits: SOL per launch, launches per day, daily loss, and a kill switch.
 - First live batch: 10 launches. The SOL budget arithmetic is in [ACCOUNTS.md](ACCOUNTS.md).

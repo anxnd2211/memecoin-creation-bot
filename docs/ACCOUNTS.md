@@ -85,18 +85,24 @@ on their servers.
 This is the cost structure of the test plan, not investment advice, and I am not a licensed financial adviser.
 Only fund the launch wallet with SOL you can afford to lose entirely.
 
-| Item | Per launch | Batch of 10 |
-| --- | --- | --- |
-| Dev buy | 0.5–1 SOL | 5–10 SOL |
-| Account rent and network fees for the create transaction | about 0.02–0.03 SOL (measured exactly in Phase 3 simulation) | about 0.3 SOL |
-| Priority fees or tips to land quickly | about 0.01–0.05 SOL | up to 0.5 SOL |
-| Reserve for retries and claiming creator fees | | about 1 SOL |
-| **Wallet funding** | | **about 7–12 SOL** |
+The backtest ([EXIT-BACKTEST.md](EXIT-BACKTEST.md)) changed this plan: launches with a dev buy under 1 SOL drew
+almost no buyers, while about 3 SOL drew the sniper bots. It also showed that on a normal curve the dev position can
+lose at most the fees, and that the bag is sold about 20 seconds after launch, so launches run one at a time can
+reuse the same SOL.
 
-pump.fun charges 1.25% on every curve trade (0.95% protocol, 0.30% creator), confirmed from live trade events, so
-buying and selling the dev position costs about 2.5%, of which the creator share comes back as fees. In the screen,
-devs whose coins drew under 0.5 SOL of outside inflow lost about a third of their dev buy at the median, so a
-batch where nothing catches could lose roughly 2–4 SOL, and the whole dev-buy amount in the worst case.
+| Item | Per launch | Batch of 10, one launch at a time |
+| --- | --- | --- |
+| Dev buy, returned when the bag is sold about 20 s later | 3 SOL | 3 SOL, reused |
+| Most the dev position can lose on a normal curve (protocol fee both ways) | about 0.06 SOL | about 0.6 SOL |
+| Rent and network fees for the create transaction (measured: 0.010 and 0.025 SOL) | about 0.02 SOL | about 0.2 SOL |
+| Priority fees or tips for the create and the sell | about 0.005–0.02 SOL | up to 0.2 SOL |
+| Reserve for retries, a failed sell, and claiming creator fees | | about 1 SOL |
+| **Wallet funding** | | **about 5 SOL** |
+
+If none of the ten launches draws a buyer, the batch loses about 1 SOL: the fees, rent and tips above. The bound
+holds only for normal-mode launches whose whole bag is sold; a bug that leaves a bag unsold, or a stolen key, can
+lose more, which is why the wallet holds one batch at a time. Running launches in parallel needs 3 SOL for each open
+position.
 
 ## What stays with you
 
