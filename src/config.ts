@@ -46,13 +46,16 @@ export const config = {
   dbPath: str('DB_PATH', 'data/observer.db'),
   /** Which raw trades to keep: `curve` (bonding curve only), `all` (plus PumpSwap, ~15x more rows), or `none`. */
   storeTrades: storeTrades as 'none' | 'curve' | 'all',
-  tradeRetentionDays: num('TRADE_RETENTION_DAYS', 3),
+  tradeRetentionDays: num('TRADE_RETENTION_DAYS', 14),
   positionRetentionDays: num('POSITION_RETENTION_DAYS', 7),
   minFreeDiskGb: num('MIN_FREE_DISK_GB', 3),
 
   metadataMinBuyers: num('METADATA_MIN_BUYERS', 8),
-  metadataSampleRate: num('METADATA_SAMPLE_RATE', 0.05),
-  ipfsGateways: list('IPFS_GATEWAYS', 'https://ipfs.io/ipfs/,https://dweb.link/ipfs/,https://gateway.pinata.cloud/ipfs/'),
+  metadataSampleRate: num('METADATA_SAMPLE_RATE', 1),
+  ipfsGateways: list(
+    'IPFS_GATEWAYS',
+    'https://ipfs.io/ipfs/,https://dweb.link/ipfs/,https://gateway.pinata.cloud/ipfs/,https://4everland.io/ipfs/,https://ipfs.filebase.io/ipfs/',
+  ),
 
   jupiterApiKey: process.env.JUPITER_API_KEY?.trim() || null,
 

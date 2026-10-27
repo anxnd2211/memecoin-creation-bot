@@ -21,9 +21,13 @@ screen's findings checked on hours they were not built from. Strong leads, not s
   7 SOL of outside buying in the first three seconds; dev buys just under 3 SOL drew a fraction of that, and dev buys
   under 1 SOL drew nothing. Single-wallet launches buying 3–4.5 SOL made +1.4 SOL per launch on average, 84% of them
   profitable, across 24 devs.
-- **Hold the dev bag about 20 seconds, then sell everything.** In replays held out from the choice, that beat selling
-  into the first buyers by about 0.1–0.2 SOL per launch and edged what the recorded devs did; in the newest half hour
-  the recorded devs, who sold in steps over two minutes, did better, so the exit is re-fitted daily.
+- **Hold while buying lasts, then sell the whole bag at once.** On 3 SOL launches held out from the choice, holding
+  at least 10 seconds and selling once net buying stalls made +1.90 SOL per launch, against +1.59 for what the
+  recorded devs did and +0.89 for selling into the first buyers. Other wallets dump the moment a dev sells, so the
+  bag goes in one sell.
+- **Links matter.** Launches linking the post their narrative came from, plus its original source as the website,
+  drew buyers about twice as often as launches without. Launches meeting all of these rules made +2.35 SOL on
+  average (in-sample). The rules and their evidence are in [PLAYBOOK.md](PLAYBOOK.md).
 
 - **The dev's profit comes out of other wallets' net inflow before the dev sells.** Under 0.5 SOL of net inflow
   before the first dev sell, 39% of devs made money; 0.5–2 SOL, 91%; above 2 SOL, all of them. The exit manager is
@@ -91,11 +95,14 @@ Built:
 - Reports: market (`report`), single coin or wallet (`inspect`), dev screen (`devs`), on-chain wallet age and
   funding (`wallet-history`). Naming waves are counted per dev, so one dev relaunching a name 100 times is not a
   narrative.
+- Metadata (description, links) fetched for every launch at launch time, so launch traits can be compared without
+  bias; earlier launches can be filled in with `backfill-metadata`. Raw trades are kept 14 days.
 
 Remaining:
 
-- Keep the observer recording around the clock: on 2026-10-27 it recorded nothing from 07:58 to 11:34 UTC while the
-  Mac slept. A small always-on server, or the Mac kept awake and plugged in.
+- Keep the observer recording around the clock: on 2026-10-27 it recorded nothing from 07:58 to 11:34 and from
+  12:33 to 19:19 UTC while the Mac slept with its lid closed (`caffeinate` cannot prevent that). A small always-on
+  server, or the Mac open and plugged in.
 - gRPC source (Helius LaserStream or Yellowstone) with replay after disconnects.
 - Full transactions per trade (the signer, token transfers), which the log stream does not carry: some pooled
   routers name one shared account for many traders, and tokens moved between wallets are invisible today.
@@ -112,20 +119,25 @@ Remaining:
 - Speed matters in seconds: the profitable launches in the screen sold into flow that arrived within 10 seconds
   of launch, so the path from a tweet to a launch-ready concept must be measured and kept short.
 - Crowding gate: before designing, count how many launches already use the narrative's words in the last 10
-  minutes and whether one already has traction. If a leader exists, do not launch a copy (Olympus: "how many
-  others would independently build this exact thing?").
-- Coin designer: Claude proposes name, ticker, description and art direction; an image model makes the art. Each
-  concept is compared with the nearest past coins (name and narrative similarity) and how they did.
+  minutes and whether one already has traction (Olympus: "how many others would independently build this exact
+  thing?"). On 2026-10-27, launching a ticker that 1–2 others had launched in the previous 10 minutes made +0.84 SOL
+  per launch against +0.24 for a fresh ticker, and 3 or more others +0.59: join a live wave early, not late.
+- Coin designer: Claude proposes name, ticker, description and art direction; an image model makes the art. Every
+  concept carries the post its narrative came from (the X link) and the narrative's original source (the website
+  field), which the playbook requires. Each concept is compared with the nearest past coins (name and narrative
+  similarity) and how they did.
 - Shadow mode: the designer produces concepts without launching. Each concept is scored later against what
   similar real launches did, versus a random-launch baseline. Gate to Phase 4: shadow picks beat the baseline on a
   held-out period.
 
 ## Phase 3: Launcher and exit manager (paper)
 
-Status: the exit backtest is built (`npm run simulate`). It replays recorded launches with our position in place of
-the dev's under about 1,300 selling plans, chooses plans on time blocks they are then not scored on, and reports
-results against the recorded devs with paired noise intervals. Its first playbook, in
-[EXIT-BACKTEST.md](EXIT-BACKTEST.md): normal mode, a 3 SOL dev buy, hold about 20 seconds, sell the whole bag.
+Status: the exit backtest (`npm run simulate`) and the launch-trait report (`npm run traits`) are built, and the
+playbook is versioned in code (`src/playbook.ts`, now v1; [PLAYBOOK.md](PLAYBOOK.md)). The backtest replays
+recorded launches with our position in place of the dev's under about 1,650 selling plans, models the dump other
+wallets make when a dev sells, chooses plans on time blocks they are then not scored on, and reports results against
+the recorded devs with paired noise intervals. Not built yet: the transactions, the launch board, the coin designer
+and paper mode.
 
 - Build create, buy and sell transactions with the official `@pump-fun/pump-sdk`; simulate every one.
 - Launch board, in order, each failing closed: narrative fresh; no crowding leader; no name or ticker collision

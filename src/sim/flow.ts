@@ -10,6 +10,12 @@ import type { TradeRow } from '../intel/devs.ts';
 
 /** Wallet id used for trades inferred from a jump in the recorded curve state. */
 export const PHANTOM = -1;
+/**
+ * Other wallets' sells this many slots or fewer after a dev sell are reactions to it: on busy coins, other wallets
+ * sold about 15 times their usual rate in the dev's slot and 4 times in the next (many trading terminals offer
+ * "sell when the dev sells").
+ */
+export const REACTION_SLOTS = 2;
 
 export interface FlowTrade {
   ts: number;
@@ -21,6 +27,8 @@ export interface FlowTrade {
   tokens: number;
   /** Made by the coin's own dev wallets. */
   dev: boolean;
+  /** Another wallet's sell within REACTION_SLOTS of a dev sell before it. */
+  reaction: boolean;
 }
 
 export interface Flow {
@@ -61,7 +69,7 @@ function phantom(from: number, to: number, ts: number, slot: number): FlowTrade 
   const isBuy = to > from;
   const tokens = Math.abs(CURVE_K / from - CURVE_K / to);
   const sol = isBuy ? (to - from) * (1 + CURVE_FEE_RATE) : (from - to) * (1 - CURVE_FEE_RATE);
-  return { ts, slot, wallet: PHANTOM, isBuy, sol, tokens, dev: false };
+  return { ts, slot, wallet: PHANTOM, isBuy, sol, tokens, dev: false, reaction: false };
 }
 
 /** `trades` must be in recorded order (time, slot, arrival); `devIds` marks the coin's own dev wallets. */
@@ -71,8 +79,13 @@ export function reconstructFlow(trades: TradeRow[], devIds: ReadonlySet<number>)
   let phantoms = 0;
   let phantomSol = 0;
   let state = LAUNCH_VIRTUAL_SOL;
-  const push = (t: TradeRow) =>
-    out.push({ ts: t.ts, slot: t.slot, wallet: t.wallet, isBuy: t.isBuy, sol: t.sol, tokens: t.coins, dev: devIds.has(t.wallet) });
+  let devSellSlot = -Infinity;
+  const push = (t: TradeRow) => {
+    const dev = devIds.has(t.wallet);
+    if (dev && !t.isBuy) devSellSlot = t.slot;
+    const reaction = !dev && !t.isBuy && t.slot - devSellSlot <= REACTION_SLOTS;
+    out.push({ ts: t.ts, slot: t.slot, wallet: t.wallet, isBuy: t.isBuy, sol: t.sol, tokens: t.coins, dev, reaction });
+  };
 
   const ordered = trades.map((t, i) => ({ t, i })).sort((a, b) => a.t.slot - b.t.slot || a.i - b.i);
   for (let i = 0; i < ordered.length; ) {

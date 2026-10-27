@@ -86,9 +86,13 @@ export function runPolicy(coins: BacktestCoin[], policy: ExitPolicy, o?: SimOpti
   return coins.map((c) => simulate(c, policy, o).pnl);
 }
 
-/** Among plans within this of the best plateau, the simplest is chosen: fewer moving parts, less to overfit. */
+/**
+ * Among plans within this of the best plateau, the simplest is chosen: fewer moving parts, less to overfit. A plan
+ * that sells the whole bag at once also counts as simpler than one keeping a moonbag, because the replay cannot show
+ * how other wallets react to our first partial sell, and a full sell keeps the dev's loss bounded by the fees.
+ */
 export const SIMPLER_WITHIN_SOL = 0.005;
-const FAMILY_COMPLEXITY = ['time', 'dump', 'ladder'];
+const FAMILY_COMPLEXITY = ['time', 'dump', 'flow', 'ladder'];
 
 export interface PlanChoice {
   chosen: GridPolicy;
@@ -114,8 +118,24 @@ export function choosePlan(coins: BacktestCoin[], grid: GridPolicy[], o?: SimOpt
   const complexity = (p: GridPolicy) => FAMILY_COMPLEXITY.indexOf(p.family);
   const chosen = ranked
     .filter((p) => plateau.get(p.name)! >= bar)
-    .sort((a, b) => complexity(a) - complexity(b) || plateau.get(b.name)! - plateau.get(a.name)!)[0]!;
+    .sort(
+      (a, b) =>
+        complexity(a) - complexity(b) ||
+        Number(a.moonbagShare > 0) - Number(b.moonbagShare > 0) ||
+        plateau.get(b.name)! - plateau.get(a.name)!,
+    )[0]!;
   return { chosen, ranked, means, plateau, results };
+}
+
+/** Stretches of over five minutes in [from, to] with no recorded trade: the observer was down or asleep. */
+export function feedGaps(db: DatabaseSync, from: number, to: number): [number, number][] {
+  const rows = db
+    .prepare(
+      `SELECT prev, ts FROM (SELECT ts, LAG(ts) OVER (ORDER BY ts) AS prev FROM trades WHERE ts BETWEEN ? AND ?)
+       WHERE ts - prev > 300`,
+    )
+    .all(from, to) as { prev: number; ts: number }[];
+  return rows.map((r) => [r.prev, r.ts]);
 }
 
 /** Drops launches whose replay window overlaps a stretch the observer recorded nothing. */

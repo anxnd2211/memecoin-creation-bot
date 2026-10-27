@@ -4,7 +4,7 @@ import { CREATOR_FEE_RATE, CURVE_FEE_RATE, CURVE_MAX_PRICE_SOL, CURVE_REAL_TOKEN
 import type { TradeRow } from '../src/intel/devs.ts';
 import { pairedDifference, rankCorrelation } from '../src/sim/backtest.ts';
 import { PHANTOM, reconstructFlow } from '../src/sim/flow.ts';
-import { RECORDED_DEV, ladderPolicy, timePolicy } from '../src/sim/policies.ts';
+import { RECORDED_DEV, flowPolicy, ladderPolicy, timePolicy } from '../src/sim/policies.ts';
 import { DEFAULT_SIM, simulate, type SimCoin } from '../src/sim/simulate.ts';
 
 const T0 = 1_800_000_000;
@@ -156,6 +156,71 @@ test('ladder sells land after the latency, and the moonbag is kept only once the
   assert.equal(d.bagSol, 0);
   assert.ok(Math.abs(d.pnl - (d.received - d.spent + d.creatorFees)) < 1e-12);
   assert.ok(d.pnl < 0 && d.pnl > -0.03);
+});
+
+test('a flow plan holds while buying continues and sells once it stalls', () => {
+  const trades = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 103, ts: T0 + 1, buySol: 1 },
+    { wallet: 6, slot: 110, ts: T0 + 4, buySol: 1 },
+    { wallet: 7, slot: 118, ts: T0 + 7, buySol: 1 },
+    // Nothing for 6 s: the 5-second window empties at T0 + 12, so we sell before this buy.
+    { wallet: 8, slot: 135, ts: T0 + 13, buySol: 2 },
+  ]);
+  const plan = flowPolicy(0, 5, 0, 120, 0);
+  const r = simulate(coin(trades, 1.0125), plan, NO_COSTS);
+  assert.equal(r.firstSellSec, 12);
+  const expected = new Curve();
+  const ours = expected.buy(1.0125).tokens;
+  for (let k = 0; k < 3; k++) expected.buy(1);
+  assert.ok(Math.abs(r.received - expected.sell(ours).sol) < 1e-9);
+
+  // A minimum hold keeps the bag through an early lull.
+  const held = simulate(coin(trades, 1.0125), flowPolicy(20, 5, 0, 120, 0), NO_COSTS);
+  assert.ok(held.firstSellSec! >= 20);
+
+  // A big sell turns the window negative: the exit lands two slots later.
+  const dump = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 3 },
+  ]);
+  const sold = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 3 },
+    { wallet: 5, slot: 104, ts: T0 + 2, sellTokens: dump[1]!.coins },
+    { wallet: 9, slot: 105, ts: T0 + 2, buySol: 0.1 },
+    { wallet: 9, slot: 107, ts: T0 + 3, buySol: 0.1 },
+  ]);
+  // Net buying over 2 s falls to about 0.07 SOL on the sell at slot 104; the exit lands at slot 106, after the
+  // buy in slot 105.
+  const out = simulate(coin(sold, 1.0125), flowPolicy(0, 2, 0.5, 120, 0), NO_COSTS);
+  assert.equal(out.firstSellSec, 3);
+  const before = new Curve();
+  const mine = before.buy(1.0125).tokens;
+  before.sell(before.buy(3).tokens);
+  before.buy(0.1);
+  assert.ok(Math.abs(out.received - before.sell(mine).sol) < 1e-9);
+});
+
+test('sells that reacted to the recorded dev selling are skipped until we sell', () => {
+  const bought = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 2 },
+  ]);
+  const trades = record([
+    { wallet: DEV, slot: 100, ts: T0, buySol: 1 },
+    { wallet: 5, slot: 101, ts: T0 + 1, buySol: 2 },
+    { wallet: DEV, slot: 110, ts: T0 + 5, sellTokens: bought[0]!.coins },
+    { wallet: 5, slot: 111, ts: T0 + 5, sellTokens: bought[1]!.coins }, // sells when the dev sells
+    { wallet: 6, slot: 140, ts: T0 + 15, buySol: 0.5 },
+  ]);
+  const c = coin(trades, 1.0125);
+  assert.deepEqual(c.trades.map((t) => t.reaction), [false, false, false, true, false]);
+  const r = simulate(c, timePolicy(10, 0), NO_COSTS);
+  const expected = new Curve();
+  const ours = expected.buy(1.0125).tokens;
+  expected.buy(2);
+  assert.ok(Math.abs(r.received - expected.sell(ours).sol) < 1e-9);
 });
 
 test('a dev who buys first and sells everything loses at most the protocol fee both ways', () => {

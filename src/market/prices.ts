@@ -20,6 +20,9 @@ export class PriceBook {
   private timer: NodeJS.Timeout | null = null;
   private soon: NodeJS.Timeout | null = null;
   private readonly jupiterApiKey: string | null;
+  /** After a rate limit, no requests until this time; the pause doubles while limits continue. */
+  private pausedUntil = 0;
+  private pauseMs = 0;
 
   /** Without a Jupiter API key the free lite endpoint is used; it rate-limits at full pump.fun volume. */
   constructor(jupiterApiKey: string | null = null) {
@@ -72,13 +75,23 @@ export class PriceBook {
 
   private async fetchPrices(ids: string[]): Promise<void> {
     for (let i = 0; i < ids.length; i += 50) {
+      if (Date.now() < this.pausedUntil) return;
+      // Space requests out: the free endpoint allows about one a second.
+      if (i > 0) await new Promise((r) => setTimeout(r, 1_100));
       const chunk = ids.slice(i, i + 50);
       try {
         const res = await fetch((this.jupiterApiKey ? JUP_PRO_URL : JUP_LITE_URL) + chunk.join(','), {
           headers: this.jupiterApiKey ? { 'x-api-key': this.jupiterApiKey } : {},
           signal: AbortSignal.timeout(8_000),
         });
+        if (res.status === 429) {
+          this.pauseMs = Math.min(300_000, this.pauseMs ? this.pauseMs * 2 : 30_000);
+          this.pausedUntil = Date.now() + this.pauseMs;
+          log.warn('Jupiter price API rate limited; pausing', { seconds: this.pauseMs / 1000 });
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        this.pauseMs = 0;
         const body = (await res.json()) as Record<string, { usdPrice?: number; decimals?: number } | null>;
         for (const id of chunk) {
           const entry = body[id];

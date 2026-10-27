@@ -5,8 +5,9 @@ import { PHANTOM, type FlowTrade } from './flow.ts';
  * Replays a recorded launch with our dev position in place of the recorded dev's, under a selling plan. Everyone
  * else's trades happen as recorded: buyers spend the same SOL, and sellers sell the same share of what they hold
  * (tokens they never bought here, such as router or phantom trades, are sold as recorded). Prices follow from the
- * curve, so our sells move the price the others trade at. What the replay cannot know is whether buyers would have
- * reacted to our coin the way they reacted to the real one.
+ * curve, so our sells move the price the others trade at. Sells that reacted to the recorded dev's sell are skipped
+ * until we have sold. What the replay cannot know is whether buyers would have treated our coin the way they treated
+ * the real one, or how others react to a partial sell of ours.
  */
 
 /** Average Solana slot time. */
@@ -22,6 +23,11 @@ export interface ExitPolicy {
   maxHoldSec: number;
   /** Sell everything but the moonbag once no outside buy has come for this many seconds; null turns it off. */
   idleSec: number | null;
+  /**
+   * Sell everything but the moonbag once, after `minHoldSec`, other wallets' net SOL into the curve over the last
+   * `windowSec` seconds is at or below `minSol`: hold while buying keeps coming, leave when it stalls or turns.
+   */
+  stall?: { minHoldSec: number; windowSec: number; minSol: number } | null;
   /** Share of the launch bag kept, once the dev buy is recovered, and valued at the end. */
   moonbagShare: number;
   /** Replay the recorded dev's own trades instead of a plan, to check the replay and as a benchmark. */
@@ -118,6 +124,33 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
   let lastBuyTs = created;
   let rung = 0;
   const latencySec = o.latencySlots * SLOT_SEC;
+  const stall = policy.stall ?? null;
+  /** Other wallets' trades in the stall window, as signed SOL into the curve. */
+  const recent: { ts: number; sol: number }[] = [];
+  /** A window can only stall once it has had time to fill. */
+  const stallFrom = stall ? created + Math.max(stall.minHoldSec, stall.windowSec) : Infinity;
+  /**
+   * When the window ending then holds net buying at or below the threshold, if no other trade comes first: now, or
+   * when enough of the trades in it age out.
+   */
+  const nextStall = (now: number): number => {
+    const w = stall!.windowSec;
+    while (recent.length && recent[0]!.ts <= now - w) recent.shift();
+    const from = Math.max(now, stallFrom);
+    let sum = 0;
+    for (const e of recent) if (e.ts > from - w) sum += e.sol;
+    if (sum <= stall!.minSol) return from;
+    // Trades are in time order: drop each second's as it ages out until the window is quiet enough.
+    for (let i = 0; i < recent.length; ) {
+      const ts = recent[i]!.ts;
+      for (; i < recent.length && recent[i]!.ts === ts; i++) if (ts > from - w) sum -= recent[i]!.sol;
+      if (ts + w > from && sum <= stall!.minSol) return ts + w;
+    }
+    return Infinity;
+  };
+  /** The stall exit's time if nothing else trades first; a stall a trade causes lands `latencySlots` after it. */
+  let stallAt = stallFrom;
+  let stallExitSlot: number | null = null;
 
   for (const t of coin.trades) {
     if (t.ts - created > o.horizonSec || curve.complete) break;
@@ -125,12 +158,18 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
       // Timers fire before any trade that comes after them.
       if (t.ts - created >= policy.maxHoldSec) exit(created + policy.maxHoldSec);
       else if (policy.idleSec !== null && t.ts - lastBuyTs >= policy.idleSec + latencySec) exit(lastBuyTs + policy.idleSec);
+      else if (stallExitSlot !== null ? t.slot >= stallExitSlot : t.ts >= stallAt + latencySec) {
+        // A window that went quiet needs no trade to notice; the curve has not moved since the last one.
+        exit(stallExitSlot !== null ? t.ts : stallAt);
+      }
       if (pending && t.slot >= pending.slot) {
         sell(pending.tokens, t.ts);
         pending = null;
       }
     }
 
+    // Sells that reacted to the recorded dev's sell would not happen before we sell: we are the dev.
+    if (plan && t.reaction && sells === 0) continue;
     if (t.dev) {
       if (plan) continue;
       // Benchmark: the recorded dev's trades, sells as a share of what the dev held.
@@ -149,6 +188,7 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
       creatorFees += r.creatorFee;
       inflow += r.sol;
       lastBuyTs = t.ts;
+      if (stall) recent.push({ ts: t.ts, sol: r.sol });
       if (t.wallet !== PHANTOM) {
         const h = held.get(t.wallet) ?? { recorded: 0, replayed: 0 };
         h.recorded += t.tokens;
@@ -167,9 +207,14 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
       const r = curve.sell(amount);
       creatorFees += r.creatorFee;
       inflow -= r.sol;
+      if (stall) recent.push({ ts: t.ts, sol: -r.sol });
     }
 
     if (plan && !exited) {
+      if (stall && stallExitSlot === null) {
+        stallAt = nextStall(t.ts);
+        if (stallAt <= t.ts) stallExitSlot = t.slot + o.latencySlots;
+      }
       while (rung < policy.ladder.length && inflow >= policy.ladder[rung]!.inflowSol) {
         const add = policy.ladder[rung]!.share * launchBag;
         pending = pending ? { slot: pending.slot, tokens: pending.tokens + add } : { slot: t.slot + o.latencySlots, tokens: add };
@@ -178,14 +223,15 @@ export function simulate(coin: SimCoin, policy: ExitPolicy, o: SimOptions = DEFA
     }
   }
 
-  // Timers still fire after the last recorded trade.
+  // Timers still fire after the last recorded trade; the earliest is when the plan would have sold.
   if (plan) {
     const endTs = Math.min(coin.trades.at(-1)?.ts ?? created, created + o.horizonSec);
     if (pending) {
       sell(pending.tokens, endTs);
       pending = null;
     }
-    exit(Math.min(endTs, created + policy.maxHoldSec));
+    const idleAt = policy.idleSec !== null ? lastBuyTs + policy.idleSec : Infinity;
+    exit(Math.max(endTs, Math.min(created + policy.maxHoldSec, idleAt, stallAt)));
   }
 
   const bagSol = curve.sellValue(tokens);

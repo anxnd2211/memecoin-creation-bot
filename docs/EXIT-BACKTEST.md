@@ -1,8 +1,9 @@
 # Exit backtest: how to size the dev buy and when to sell
 
 `npm run simulate` replays recorded pump.fun launches with our dev position in place of the recorded dev's, under
-each of about 1,300 selling plans, and asks which plan would have made the most. A plan is always chosen on one set
-of launches and scored on launches it was not chosen on. This page explains the method, then records what it found.
+each of about 1,650 selling plans, and asks which plan would have made the most. A plan is always chosen on one set
+of launches and scored on launches it was not chosen on. This page explains the method, then records what each round
+of refinement found. The plan in use is in [PLAYBOOK.md](PLAYBOOK.md).
 
 ## Method
 
@@ -24,6 +25,13 @@ trade at. Sells triggered by a trade land a set number of slots later (2 by defa
 Creator fees on every trade count as ours. Tokens still held at the end are valued at what selling them into the
 curve would return.
 
+**Sells that react to the dev.** When a dev sells, other wallets dump at once: on busy coins, about 15 times their
+usual selling in the dev's own slot and 4 times in the next (many trading terminals offer "sell when the dev sells").
+Other wallets' sells within two slots after a recorded dev sell are marked as reactions, and the replay skips them
+until we have sold, since in our version of the launch we are the dev and have not sold yet. Without this, any plan
+holding past the moment the recorded dev sold was hit by a dump that would not have happened. What the replay still
+cannot show is the dump our own first sell would set off, which is why the playbook sells the whole bag at once.
+
 **Replay check.** Replaying the recorded devs' own trades must reproduce their recorded results: it does to within
 0.01 SOL on 96% of launches; the rest are feed gaps and devs whose tokens moved to other wallets.
 
@@ -31,14 +39,16 @@ curve would return.
 single-wallet clean devs (one wallet as creator and signer, no wallets moving with it, no tokens passed to it):
 the way this project launches. Launches whose replay would run into a stretch with no recorded trades are left out.
 
-**Plans.** Three families: hold for a set time then sell everything; sell everything once outside net inflow
-reaches a level (with a time limit and an exit when buying stops); and a four-step ladder of sells at rising inflow
-levels, with an optional moonbag kept once the dev buy is recovered.
+**Plans.** Four families: hold for a set time then sell everything; sell everything once outside net inflow
+reaches a level (with a time limit and an exit when buying stops); hold at least a few seconds, then sell everything
+once other wallets' net buying over the last few seconds stalls (the flow family); and a four-step ladder of sells
+at rising inflow levels. Each can keep a moonbag once the dev buy is recovered.
 
 **Choosing without fooling ourselves** (the Eris rules from the roadmap's engineering standard):
 
 - A plan is scored by its mean together with its one-step neighbours' (its plateau), so a lucky spike does not win.
-- Among plans within 0.005 SOL of the best plateau, the simplest family wins.
+- Among plans within 0.005 SOL of the best plateau, the simplest family wins, and selling the whole bag counts as
+  simpler than keeping a moonbag.
 - `--folds N` splits the launches into N blocks in time order and holds out each in turn; the pooled held-out results
   are the honest estimate of choosing plans this way.
 - Differences come with a paired 90% bootstrap interval: a plan beats a benchmark only when the whole interval is
@@ -51,12 +61,52 @@ On a normal curve the dev buys in the create transaction, at the lowest price th
 back more tokens than they bought after that, so the curve's price never falls below the dev's entry, and the creator
 fee on the dev's own trades comes back to the dev. A dev who sells the whole bag therefore loses at most the protocol
 fee both ways: 1.9% of the dev buy, plus rent and network fees (`maxDevBuyLoss` in `src/chain/curve.ts`, checked by a
-randomized test). Across 3,534 replays (1,178 normal launches, three hold times) the worst 1% lost 1.88% before costs; the five exceptions were inferred trades
-and router accounts, not real losses. A front-runner cannot break this either, since it too can only sell what it
+randomized test). Across 3,534 replays (1,178 normal launches, three hold times) the worst 1% lost 1.88% before
+costs; the five exceptions were inferred trades and router accounts, not real losses. A front-runner cannot break this either, since it too can only sell what it
 bought. Mayhem mode does break it: pump.fun's agent sells newly minted supply, which is how losing Mayhem devs ended
 up selling at 9% of the launch price.
 
-## Findings, 2026-10-27
+## Round 2, 2026-10-27 evening: reactions to the dev, and holding while buying lasts
+
+1,227 single-wallet normal launches recorded from 04:22 to 19:38 UTC (the observer recorded nothing from 07:58 to
+11:34 and from 12:33 to 19:19 UTC while the Mac slept).
+
+**The dev-sell reaction changed the picture.** Before modelling it, the plan chosen in each of four time blocks did
+worse than the recorded devs on the held-out blocks (−0.033 SOL per launch, beyond noise) and plans ranked
+inconsistently between blocks (rank agreement 0.76–0.87). With reactions modelled, plans ranked almost identically
+in every block (0.92–0.93), and the chosen plans made +0.351 SOL per launch against +0.325 for the recorded devs
+(within noise) and +0.183 for selling at the first outside buy (+0.167, beyond noise).
+
+Other wallets' trades by slot around a dev's first sell, 226 busy single-wallet launches:
+
+| Slot from the dev's first sell | −3 | −2 | −1 | 0 | +1 | +2 | +3 | +5 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Others' sells, SOL | 13.9 | 14.7 | 25.5 | 230.2 | 61.2 | 35.7 | 30.3 | 20.6 |
+| Others' buys, SOL | 51.2 | 39.8 | 20.9 | 56.0 | 72.0 | 60.3 | 51.2 | 48.0 |
+
+**With the dev buy we will use, the flow plan beats the recorded devs.** On launches with a dev buy of 2.95 SOL or
+more (`npm run simulate -- --folds 3 --horizon 10 --min-dev-buy 2.95`), each block's plan chosen on the other two:
+
+| Held-out block | Launches | Busy | Plan chosen on the other blocks | Chosen | Recorded devs | Simple dump |
+| --- | --- | --- | --- | --- | --- | --- |
+| 04:23–05:57 | 67 | 34 | hold 10 s+, sell when 10 s net buying ≤ 0.5 SOL, ≤ 120 s | +1.757 | +1.224 | +0.846 |
+| 05:59–11:41 | 67 | 35 | hold 10 s+, sell when 3 s net buying ≤ 0 SOL, ≤ 120 s | +1.752 | +1.522 | +0.802 |
+| 11:41–19:44 | 65 | 37 | hold 10 s+, sell when 10 s net buying ≤ 0.5 SOL, ≤ 120 s | +2.192 | +2.051 | +1.021 |
+
+Pooled over the 199 held-out launches, +1.898 SOL per launch against +1.594 for the recorded devs (+0.303, interval
++0.113 to +0.488) and +0.889 for selling at the first outside buy (+1.009, interval +0.771 to +1.259). The median
+launch made +0.918 SOL, 80% were profitable, and the worst 5% lost 0.116 SOL.
+
+On all launches, hold time with reactions modelled (SOL per launch; the flow plan, at +0.375, ties the best of these):
+
+| Hold | 5 s | 10 s | 15 s | 20 s | 25 s | 30 s | 60 s | 120 s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Mean | 0.269 | 0.341 | 0.369 | 0.373 | 0.353 | 0.333 | 0.326 | 0.311 |
+
+Round 2 became playbook v1: hold at least 10 seconds, then sell the whole bag once other wallets' net buying over the
+last 10 seconds is 0.5 SOL or less, and by two minutes at the latest.
+
+## Round 1, 2026-10-27
 
 ### This morning's dev screen, checked on later hours
 
@@ -142,34 +192,28 @@ would draw; this table is the evidence.
 ## Caveats
 
 - **Buyers react as recorded.** The replay cannot know whether buyers would treat our coin the way they treated the
-  real one. Plans that sell before the recorded dev did look better than they would be (buyers then saw a dev still
-  holding); plans that hold longer than the recorded dev did are, if anything, understated.
+  real one. Reactions to the recorded dev's sell are moved to after ours; reactions to a partial sell of ours are not
+  modelled, so partial sells and moonbags look better here than they would be.
 - **Our hit rate is unknown.** These are other devs' launches with their names and timing. The result rests on how
   often our launches draw buyers; dead launches cost little, so the busy share is the number to watch.
-- **One morning of data.** 3.5 hours of 04:22–07:58 UTC and 25 minutes after 11:34 UTC; the observer recorded nothing
-  from 07:58 to 11:34 UTC while the Mac slept.
+- **Less than a day of data.** About five hours across 04:22–19:38 UTC on one day; the observer recorded nothing
+  while the Mac slept with its lid closed.
 - **Sniper settings can change any day.** The 3 SOL step is other bots' configuration and needs a daily check.
-- **Dev profit comes out of other traders.** In the held-out hours, wallets buying after the launch window lost
-  1,252 SOL on busy coins, while devs made 641 SOL on the same coins, creator fees included.
+- **Dev profit comes out of other traders.** In the morning's held-out hours, wallets buying after the launch window
+  lost 1,252 SOL on busy coins, while devs made 641 SOL on the same coins, creator fees included.
 - **Assumed costs.** 0.002 SOL per sell for priority fees; Jito tips at busy times can cost more.
 
 ## What this means for the bot
 
-A first playbook, to be re-fitted every day:
-
-1. Launch in normal mode only, never Mayhem.
-2. Buy about 3 SOL in the create transaction from the one public launch wallet.
-3. Hold about 20 seconds, then sell the whole bag in one transaction, pre-signed on a timer with a tight slippage
-   limit. Selling at the first buyers costs about 0.1–0.2 SOL per launch on average.
-4. Most a launch can lose: about 0.06 SOL of fees on a 3 SOL buy, plus about 0.03 SOL of rent and fees.
-5. Re-run `npm run simulate -- --folds 3` daily; change the plan only when a new one beats it on the pooled
-   held-out blocks beyond the noise interval. The ladder that held up to two minutes is the first candidate.
+The plan in use, its rules and their evidence are in [PLAYBOOK.md](PLAYBOOK.md). Re-run the checks below daily, and
+change the plan only when a new one beats it on the pooled held-out blocks beyond the noise interval.
 
 ## Commands
 
 ```bash
 npm run simulate                       # split two thirds / one third, full report
 npm run simulate -- --folds 3          # each time block held out in turn
+npm run simulate -- --folds 3 --horizon 10 --min-dev-buy 2.95   # launches with the dev buy we use
 npm run simulate -- --fit 2026-10-27T04:22Z..2026-10-27T07:50Z --test 2026-10-27T11:35Z..2026-10-27T12:00Z --horizon 5
 npm run simulate -- --cohort normal    # all normal launches, bundled devs included
 npm run simulate -- --json

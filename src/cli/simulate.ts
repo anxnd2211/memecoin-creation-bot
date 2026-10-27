@@ -6,6 +6,7 @@ import {
   SIMPLER_WITHIN_SOL,
   awayFromGaps,
   choosePlan,
+  feedGaps,
   loadBacktestCoins,
   pairedDifference,
   rankCorrelation,
@@ -26,7 +27,7 @@ const opt = (name: string): string | undefined => {
 
 if (flag('help')) {
   console.log(`usage: npm run simulate -- [--fit <from>..<to>[,<from>..<to>]] [--test <from>..<to>] | [--folds 3]
-                            [--cohort clean|normal] [--latency 2] [--horizon 30] [--top 8] [--json]
+                            [--cohort clean|normal] [--min-dev-buy 0] [--latency 2] [--horizon 30] [--top 8] [--json]
 
 Backtests selling plans on recorded normal (non-Mayhem) launches. Each launch is replayed with our dev position in
 place of the recorded dev's, under every plan in the grid; everyone else trades as recorded. A plan is chosen on
@@ -38,7 +39,7 @@ the other blocks and scored on the held-out one. The pooled held-out results are
 plans this way.
 
 --cohort clean (default) keeps launches made the way this project launches: one wallet, no wallets moving with
-it. --latency is slots (${SLOT_SEC} s each) between a trade and our sell landing; --horizon is minutes after
+it. --min-dev-buy keeps launches whose dev bought at least that much SOL (fees included) in the create transaction. --latency is slots (${SLOT_SEC} s each) between a trade and our sell landing; --horizon is minutes after
 launch that are replayed. Launches whose replay would run into a stretch with no recorded trades are left out.`);
   process.exit(0);
 }
@@ -59,6 +60,7 @@ const options: SimOptions = {
 const cohort = opt('cohort') ?? 'clean';
 const top = Number(opt('top') ?? 8);
 const folds = Number(opt('folds') ?? 0);
+const minDevBuy = Number(opt('min-dev-buy') ?? 0);
 
 function ranges(name: string): [number, number][] | null {
   const v = opt(name);
@@ -73,17 +75,6 @@ function ranges(name: string): [number, number][] | null {
   });
 }
 
-/** Stretches over five minutes with no recorded trade. */
-function feedGaps(from: number, to: number): [number, number][] {
-  const rows = db
-    .prepare(
-      `SELECT prev, ts FROM (SELECT ts, LAG(ts) OVER (ORDER BY ts) AS prev FROM trades WHERE ts BETWEEN ? AND ?)
-       WHERE ts - prev > 300`,
-    )
-    .all(from, to) as { prev: number; ts: number }[];
-  return rows.map((r) => [r.prev, r.ts]);
-}
-
 const liveSince = Number(
   (db.prepare("SELECT value FROM meta WHERE key = 'creator_fees_since'").get() as { value: string } | undefined)?.value ?? nowTs - 86400,
 );
@@ -91,10 +82,12 @@ const lastLaunch = nowTs - options.horizonSec;
 const fitRanges = ranges('fit');
 const testRanges = ranges('test');
 const all = [...(fitRanges ?? []), ...(testRanges ?? []), ...(fitRanges && testRanges ? [] : [[liveSince, lastLaunch] as [number, number]])];
-const gaps = feedGaps(Math.min(...all.map((r) => r[0])), Math.max(...all.map((r) => r[1])) + options.horizonSec);
+const gaps = feedGaps(db, Math.min(...all.map((r) => r[0])), Math.max(...all.map((r) => r[1])) + options.horizonSec);
 const load = (rs: [number, number][]) =>
   awayFromGaps(
-    rs.flatMap(([a, b]) => loadBacktestCoins(db, a, b)).filter((c) => cohort === 'normal' || c.clean),
+    rs
+      .flatMap(([a, b]) => loadBacktestCoins(db, a, b))
+      .filter((c) => (cohort === 'normal' || c.clean) && c.launchBuySol >= minDevBuy),
     gaps,
     options.horizonSec,
   ).sort((a, b) => a.createdTs - b.createdTs);
@@ -141,7 +134,8 @@ const verdict = (d: { lo: number; hi: number } | null) =>
 const intro = () => {
   heading('Exit backtest');
   console.log(
-    `  ${cohort === 'clean' ? 'Single-wallet clean' : 'All'} normal launches with a dev buy, replayed ${options.horizonSec / 60} min with our` +
+    `  ${cohort === 'clean' ? 'Single-wallet clean' : 'All'} normal launches with a dev buy` +
+      `${minDevBuy ? ` of at least ${minDevBuy} SOL` : ''}, replayed ${options.horizonSec / 60} min with our` +
       ` position in place of the dev's. Latency ${options.latencySlots} slots; costs ${options.launchCostSol} SOL per launch,` +
       ` ${options.txCostSol} per sell. Plans in the grid: ${grid.length}.`,
   );

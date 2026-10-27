@@ -30,6 +30,7 @@ const LADDER = {
   idle: [null, 3, 5, 10, 30],
   moonbag: [0, 0.1, 0.2, 0.35],
 };
+const FLOW = { minHold: [0, 5, 10, 20, 30], window: [3, 5, 10, 20], minSol: [0, 0.5, 1], hold: [60, 120, 300], moonbag: [0, 0.1] };
 const LADDER_STEPS = [1, 2, 4, 8];
 
 const idleName = (s: number | null) => (s === null ? '' : `, idle ${s}s`);
@@ -56,6 +57,21 @@ export function dumpPolicy(inflowSol: number, maxHoldSec: number, idleSec: numbe
     maxHoldSec,
     idleSec,
     moonbagShare: 0,
+  };
+}
+
+/** Holds while other wallets keep buying; sells everything once their net buying over a short window stalls. */
+export function flowPolicy(minHoldSec: number, windowSec: number, minSol: number, maxHoldSec: number, moonbagShare: number): ExitPolicy {
+  return {
+    name:
+      `hold ${minHoldSec}s+, sell when ${windowSec}s net buying <= ${minSol} SOL, hold <=${maxHoldSec}s` +
+      moonbagName(moonbagShare),
+    devBuySol: null,
+    ladder: [],
+    maxHoldSec,
+    idleSec: null,
+    stall: { minHoldSec, windowSec, minSol },
+    moonbagShare,
   };
 }
 
@@ -87,6 +103,10 @@ export function policyGrid(): GridPolicy[] {
   for (const at of product([DUMP.inflow.length, DUMP.hold.length, DUMP.idle.length])) {
     const p = dumpPolicy(DUMP.inflow[at[0]!]!, DUMP.hold[at[1]!]!, DUMP.idle[at[2]!]!);
     out.push({ ...p, family: 'dump', at });
+  }
+  for (const at of product([FLOW.minHold.length, FLOW.window.length, FLOW.minSol.length, FLOW.hold.length, FLOW.moonbag.length])) {
+    const p = flowPolicy(FLOW.minHold[at[0]!]!, FLOW.window[at[1]!]!, FLOW.minSol[at[2]!]!, FLOW.hold[at[3]!]!, FLOW.moonbag[at[4]!]!);
+    out.push({ ...p, family: 'flow', at });
   }
   for (const at of product([LADDER.base.length, LADDER.hold.length, LADDER.idle.length, LADDER.moonbag.length])) {
     const p = ladderPolicy(LADDER.base[at[0]!]!, LADDER.hold[at[1]!]!, LADDER.idle[at[2]!]!, LADDER.moonbag[at[3]!]!);

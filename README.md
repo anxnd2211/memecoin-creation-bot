@@ -23,6 +23,8 @@ npm run devs -- --since 2026-10-27T05:25Z --until 2026-10-27T07:45Z --clean   # 
 npm run wallet-history -- <wallet>  # on-chain age, transaction count and first funder of a wallet
 npm run simulate         # exit backtest: our dev position replayed under ~1,300 selling plans
 npm run simulate -- --folds 3       # each time block held out in turn
+npm run traits           # which launch traits (dev buy, links, tool, ticker wave, dev history) draw buyers
+npm run backfill-metadata -- --since 2026-10-27T04:22Z   # fetch metadata the observer skipped
 npm test
 ```
 
@@ -62,7 +64,8 @@ src/intel      engine, positions, archetypes, report queries, dev screen
 src/market     SOL and quote prices, coin metadata fetcher
 src/sim        trade-order rebuild, launch replay, selling plans, backtest scoring
 src/store      SQLite schema and writes
-src/cli        observe, report, inspect, devs, simulate, wallet-history, backfill-launchers, update-idl
+src/cli        observe, report, inspect, devs, simulate, traits, wallet-history, backfills, update-idl
+src/playbook.ts  the versioned launch playbook (docs/PLAYBOOK.md)
 idl/           pump.fun program IDLs (from github.com/pump-fun/pump-public-docs)
 test/          unit tests and real mainnet transaction fixtures
 ```

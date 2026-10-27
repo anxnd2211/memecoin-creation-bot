@@ -17,7 +17,9 @@
     "devs": "node --disable-warning=ExperimentalWarning src/cli/devs.ts",
     "backfill-launchers": "node --disable-warning=ExperimentalWarning src/cli/backfillLaunchers.ts",
     "wallet-history": "node --disable-warning=ExperimentalWarning src/cli/walletHistory.ts",
-    "simulate": "node --disable-warning=ExperimentalWarning src/cli/simulate.ts"
+    "simulate": "node --disable-warning=ExperimentalWarning src/cli/simulate.ts",
+    "backfill-metadata": "node --disable-warning=ExperimentalWarning src/cli/backfillMetadata.ts",
+    "traits": "node --disable-warning=ExperimentalWarning src/cli/traits.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
