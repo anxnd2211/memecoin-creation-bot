@@ -12,6 +12,7 @@ import { ExitEngine } from '../live/exit.ts';
 import { replayOnFork } from '../live/forkReplay.ts';
 import { pinMetadata } from '../live/ipfs.ts';
 import { sellLeftoverBags } from '../live/recover.ts';
+import { takeVanity, vanityLeft } from '../live/vanity.ts';
 import { runLaunch, type LaunchDeps } from '../live/launcher.ts';
 import { LiveFeed } from '../live/stream.ts';
 import { TelegramNotifier, USAGE, type CommandMessage } from '../live/telegram.ts';
@@ -165,6 +166,8 @@ async function liveRun(): Promise<void> {
   const feed = new LiveFeed();
   feed.start();
   const deps = baseDeps(venue, tg, feed);
+  // Live launches use ground "pump" addresses, as pump.fun's site does; a dry run leaves the pool alone.
+  if (mode === 'live') deps.nextMint = () => takeVanity();
   let busy = false;
   process.on('unhandledRejection', (e) => {
     log.error('unhandled rejection', { err: (e as Error)?.message ?? String(e) });
@@ -178,7 +181,8 @@ async function liveRun(): Promise<void> {
   await tg.send(
     `Launcher started in ${mode} mode, playbook v${PLAYBOOK.version}. Wallet ${venue.dev}: ` +
       `${balance === null ? 'balance unknown' : `${(Number(balance) / 1e9).toFixed(4)} SOL`}. ` +
-      `Dev buy ${PLAYBOOK.devBuySol} SOL; kill switch ${killed() ? 'ON' : 'off'}.\n\n${USAGE}`,
+      `Dev buy ${PLAYBOOK.devBuySol} SOL; kill switch ${killed() ? 'ON' : 'off'}; ${vanityLeft()} "pump" mint addresses ` +
+      `ground${vanityLeft() === 0 ? ' (run npm run grind: launches will use random addresses)' : ''}.\n\n${USAGE}`,
   );
 
   const launch = async (post: PostInfo, draft: CoinDraft, narrative: string) => {

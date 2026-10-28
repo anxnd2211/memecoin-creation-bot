@@ -40,6 +40,8 @@ export interface LaunchDeps {
     /** Sell now; returns the decision already made if there is one. */
     kill(nowMs: number): ExitDecision;
   };
+  /** A mint keypair's secret key ending in "pump" (src/live/vanity.ts), or null for a random address. */
+  nextMint?: () => Uint8Array | null;
   /** Seconds to wait for the owner's answer. */
   approvalTimeoutSec?: number;
   /** Milliseconds between exit-engine clock ticks. */
@@ -105,9 +107,8 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     (uri) => ({ uri, error: null as string | null }),
     (e: Error) => ({ uri: null as string | null, error: e.message }),
   );
-  const mintKey = Keypair.generate();
-  const mintSecret = mintKey.secretKey;
-  const params = { name: draft.name, symbol: draft.symbol, uri: PLACEHOLDER_URI, devBuySol: p.devBuySol, mintSecret };
+  let mintKey = Keypair.generate();
+  const params = { name: draft.name, symbol: draft.symbol, uri: PLACEHOLDER_URI, devBuySol: p.devBuySol, mintSecret: mintKey.secretKey };
   let preflight: string;
   try {
     await d.venue.preflightLaunch(params);
@@ -150,7 +151,13 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     return { status: 'blocked', stage: 'recheck', detail: formatGates(final.gates) };
   }
 
-  // 5. Launch. The record is written first, so a crash mid-launch still leaves it.
+  // 5. Launch. A ground "pump" address is taken only now, so a blocked launch does not use one up (the launch is
+  // simulated again with it before it is sent). The record is written first, so a crash mid-launch still leaves it.
+  const vanity = d.nextMint?.() ?? null;
+  if (vanity) {
+    mintKey = Keypair.fromSecretKey(vanity);
+    params.mintSecret = mintKey.secretKey;
+  }
   const mint = mintKey.publicKey.toBase58();
   recordPlan(d.db, {
     mint,

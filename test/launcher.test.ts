@@ -136,3 +136,18 @@ test('a failed metadata upload stops the launch after approval, before any SOL m
   assert.deepEqual([r.status, r.status === 'blocked' && r.stage], ['blocked', 'metadata']);
   assert.equal(s.venue.curve.vSol, 30);
 });
+
+test('a ground "pump" address is used for the launch and only taken once the launch is going ahead', async () => {
+  const { Keypair } = await import('@solana/web3.js');
+  const ground = Keypair.generate();
+  let taken = 0;
+  const ok = setup();
+  ok.deps.nextMint = () => (taken++, ground.secretKey);
+  await runLaunch(ok.deps, post, draft, 'x');
+  const row = ok.db.prepare('SELECT mint FROM our_launches').get() as { mint: string };
+  assert.equal(row.mint, ground.publicKey.toBase58());
+  const no = setup({ approve: false });
+  no.deps.nextMint = () => (taken++, ground.secretKey);
+  await runLaunch(no.deps, post, draft, 'x');
+  assert.equal(taken, 1);
+});
