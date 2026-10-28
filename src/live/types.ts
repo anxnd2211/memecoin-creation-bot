@@ -118,7 +118,7 @@ export interface LiveTrade {
 }
 
 export interface ExitDecision {
-  reason: 'stall' | 'max hold' | 'slow feed timer' | 'kill' | 'feed lost' | 'near graduation';
+  reason: 'stall' | 'max hold' | 'slow feed timer' | 'kill' | 'feed lost' | 'near graduation' | 'recovery';
   /** Local time (ms) of the decision. */
   at: number;
   /** Seconds since the launch landed. */

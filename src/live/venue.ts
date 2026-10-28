@@ -108,6 +108,10 @@ export const SENDER_TIP_ACCOUNTS = [
 ].map((k) => new PublicKey(k));
 /** Largest dev buy a launch may make: a guard against a mistyped amount, well above the playbook's 5.0625 SOL. */
 export const MAX_DEV_BUY_SOL = 10;
+/** How long a launch waits for getTransaction before returning a fill from the built transaction. */
+export const LAUNCH_FILL_WAIT_MS = 2_000;
+/** Rent a launch puts into new accounts (mint, curve, token accounts, creator vault), measured on mainnet's rent. */
+export const LAUNCH_RENT_ESTIMATE_LAMPORTS = 9_265_920n;
 /** Largest priority fee plus tip one transaction may carry (0.1 SOL), whatever the settings say. */
 const MAX_NETWORK_FEE_LAMPORTS = 100_000_000n;
 /** The dev buy may cost up to this much over `devBuySol` (100 bps, as pump.fun's site). */
@@ -1119,10 +1123,7 @@ export class MainnetVenue implements Venue {
   async launch(p: LaunchParams): Promise<LaunchFill> {
     const signer = this.requireSigner();
     const mint = p.mintSecret ? Keypair.fromSecretKey(p.mintSecret) : Keypair.generate();
-    const [{ blockhash, lastValidBlockHeight }, before] = await Promise.all([
-      this.connection.getLatestBlockhash('confirmed'),
-      this.balanceLamports(),
-    ]);
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
     const { built, sim } = await this.preflight(p, mint.publicKey, blockhash);
     log.info(
       `launch preflight passed: ${sim.computeUnits} compute units (limit ${built.computeUnitLimit}), ${built.size} bytes; ` +
@@ -1136,15 +1137,20 @@ export class MainnetVenue implements Venue {
         landed.signature,
       );
     }
-    return this.launchFill(built, landed, before);
+    return this.launchFill(built, landed);
   }
 
-  /** The launch fill from the landed transaction, or from balances and curve math if getTransaction never answers. */
-  private async launchFill(built: BuiltLaunch, landed: Landed, before: bigint): Promise<LaunchFill> {
+  /**
+   * The launch fill from the landed transaction if the RPC has it within `LAUNCH_FILL_WAIT_MS`, else from what was
+   * built: the exit must start at once (it runs from the moment the launch lands), so the launch never waits longer for
+   * its exact accounting, and nothing after the landing can throw (a throw would look like no launch while the bag is
+   * held). The fallback's dev tokens are exact (buy_v2 buys a set amount); its rent is the measured figure.
+   */
+  private async launchFill(built: BuiltLaunch, landed: Landed): Promise<LaunchFill> {
     const mint = built.mint.toBase58();
     const base = { mint, signature: landed.signature, slot: landed.slot, landedAt: landed.landedAt, simulated: false };
-    const tx = await this.fetchTransaction(landed.signature);
     const tip = built.tip?.lamports ?? 0n;
+    const tx = await this.fetchTransaction(landed.signature, LAUNCH_FILL_WAIT_MS).catch(() => null);
     if (tx?.meta) {
       const meta = tx.meta;
       const devTokens = tokenBalanceOf(meta.postTokenBalances, this.dev, mint) - tokenBalanceOf(meta.preTokenBalances, this.dev, mint);
@@ -1155,18 +1161,11 @@ export class MainnetVenue implements Venue {
       // Rent is what is left of the dev's balance change: the accounts the launch created.
       return { ...base, devTokens, lamportsSpent: spent, rentLamports: -delta - spent - networkFee, networkFeeLamports: networkFee };
     }
-    const ata = quoteAta(this.devKey, built.mint, TOKEN_2022_PROGRAM);
-    const [acc, after] = await Promise.all([
-      this.connection.getAccountInfo(ata, { commitment: 'confirmed', minContextSlot: landed.slot }),
-      this.connection.getBalance(this.devKey, { commitment: 'confirmed', minContextSlot: landed.slot }),
-    ]);
-    const devTokens = acc ? tokenAmount(acc.data) : built.devTokens;
-    const spent = this.freshBuyCost(devTokens);
     return {
       ...base,
-      devTokens,
-      lamportsSpent: spent,
-      rentLamports: before - BigInt(after) - spent - built.networkFeeLamports,
+      devTokens: built.devTokens,
+      lamportsSpent: this.freshBuyCost(built.devTokens),
+      rentLamports: LAUNCH_RENT_ESTIMATE_LAMPORTS,
       networkFeeLamports: built.networkFeeLamports,
     };
   }
@@ -1186,8 +1185,8 @@ export class MainnetVenue implements Venue {
     );
   }
 
-  private async fetchTransaction(signature: string): Promise<VersionedTransactionResponse | null> {
-    const deadline = Date.now() + this.fillTimeoutMs;
+  private async fetchTransaction(signature: string, timeoutMs = this.fillTimeoutMs): Promise<VersionedTransactionResponse | null> {
+    const deadline = Date.now() + timeoutMs;
     for (let i = 1; Date.now() < deadline; i++) {
       try {
         const tx = await this.connection.getTransaction(signature, { commitment: 'confirmed', maxSupportedTransactionVersion: 0 });
@@ -1197,7 +1196,7 @@ export class MainnetVenue implements Venue {
       }
       await sleep(Math.min(5_000, 1_000 * i, Math.max(0, deadline - Date.now())));
     }
-    log.warn(`getTransaction returned nothing for ${signature} in ${this.fillTimeoutMs / 1000} s; reading the fill from balances`);
+    log.warn(`getTransaction returned nothing for ${signature} in ${timeoutMs / 1000} s; using the built transaction's figures`);
     return null;
   }
 

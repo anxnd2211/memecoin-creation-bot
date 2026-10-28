@@ -153,6 +153,12 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
       for (const t of b?.trades ?? []) onTrade(t);
       return feed.subscribe(mint, venue.dev, onTrade);
     },
+    unwatch: (mint) => {
+      early.get(mint)?.off();
+      early.delete(mint);
+    },
+    pause: (reason) => writeFileSync(KILL_FILE, `${new Date().toISOString()} ${reason}\n`),
+    validateExit: (policy) => void new ExitEngine(policy, { landedAt: 0, slot: null }, ''),
     makeExit: (policy, landing) => {
       // Without a live feed (fork runs) only our coin's trades arrive, so a quiet coin must not look like a lost feed.
       const engine = new ExitEngine(policy, landing, venue.dev, feed ? {} : { feedLostSec: Infinity });
@@ -203,20 +209,27 @@ async function liveRun(): Promise<void> {
       `ground${vanityLeft() === 0 ? ' (run npm run grind: launches will use random addresses)' : ''}.\n\n${USAGE}`,
   );
 
+  let inFlight: Promise<void> | null = null;
+  let stopping = false;
   const launch = async (post: PostInfo, draft: CoinDraft, narrative: string) => {
-    if (busy) {
-      await tg.send(`Busy with a launch; $${draft.symbol} skipped.`);
+    if (busy || stopping) {
+      await tg.send(`${stopping ? 'Shutting down' : 'Busy with a launch'}; $${draft.symbol} skipped.`);
       return;
     }
     busy = true;
-    try {
-      const r = await runLaunch(deps, post, draft, narrative);
-      log.info('launch finished', { status: r.status, symbol: draft.symbol });
-    } catch (e) {
-      await tg.send(`Launch of $${draft.symbol} stopped by an error: ${(e as Error).message}`);
-    } finally {
-      busy = false;
-    }
+    inFlight = (async () => {
+      try {
+        const r = await runLaunch(deps, post, draft, narrative);
+        log.info('launch finished', { status: r.status, symbol: draft.symbol });
+      } catch (e) {
+        // Anything thrown after the launch could leave a bag: pause until the owner has looked.
+        writeFileSync(KILL_FILE, `${new Date().toISOString()} launch of $${draft.symbol} stopped by an error\n`);
+        await tg.send(`Launch of $${draft.symbol} stopped by an error: ${(e as Error).message}. Launching paused; check the wallet.`);
+      } finally {
+        busy = false;
+      }
+    })();
+    await inFlight;
   };
 
   const onCommand = async (m: CommandMessage) => {
@@ -287,7 +300,10 @@ async function liveRun(): Promise<void> {
       const draft = buildDraft(post, { name: d.name, ticker: d.symbol, image: { bytes, mime, filename: `post.${mime.split('/')[1]}` } });
       // A silent first check, so posts that fail the board do not each send a message.
       const pre = launchBoard({ playbook: PLAYBOOK, limits: DEFAULT_LIMITS, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: await venue.balanceLamports().catch(() => null), killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
-      if (!pre.pass) return;
+      // Launches made seconds ago may not have their metadata yet; the launch sequence waits for it, so only a post
+      // already taken, or another gate, drops the candidate here.
+      const blocking = pre.gates.filter((g) => !g.pass && !(g.name === 'first on the post' && g.detail.startsWith('0 launches')));
+      if (blocking.length) return;
       await launch(post, draft, `${c.text} (auto draft from ${d.basis})`);
     } catch (e) {
       log.warn('candidate skipped', { url: c.url, err: (e as Error).message });
@@ -295,11 +311,20 @@ async function liveRun(): Promise<void> {
   };
 
   const stop = new AbortController();
+  // A launch in flight finishes (its sell and its record) before the feed, Telegram and the database close.
   const shutdown = () => {
-    stop.abort();
+    if (stopping) return;
+    stopping = true;
     watcher?.stop();
-    feed.stop();
-    tg.close();
+    void (async () => {
+      if (inFlight) {
+        await tg.send('Shutting down after the launch in progress finishes.');
+        await inFlight;
+      }
+      stop.abort();
+      feed.stop();
+      tg.close();
+    })();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

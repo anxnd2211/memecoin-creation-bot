@@ -6,6 +6,7 @@ import { Store } from '../src/store/db.ts';
 import { DEFAULT_LIMITS } from '../src/live/board.ts';
 import { runLaunch, type LaunchDeps } from '../src/live/launcher.ts';
 import type { CoinDraft, LaunchFill, LiveTrade, Notifier, PostInfo, Venue } from '../src/live/types.ts';
+import { LaunchFailedError, NotLandedError } from '../src/live/venue.ts';
 
 const NOW = 1_800_000_000;
 const post: PostInfo = { url: 'https://x.com/news/status/1983000000000000000', handle: 'news', postId: '1983000000000000000', postedAt: NOW - 20, authorName: 'News', text: 'something happened' };
@@ -43,6 +44,8 @@ function curveVenue(o: { preflightError?: string; sellFails?: boolean } = {}): V
   };
 }
 
+const paused: string[] = [];
+
 function setup(o: { approve?: boolean; preflightError?: string; sellFails?: boolean; postLaunch?: boolean } = {}) {
   const store = new Store(':memory:');
   const db = store.db;
@@ -70,7 +73,8 @@ function setup(o: { approve?: boolean; preflightError?: string; sellFails?: bool
     },
     // A stand-in exit: sell on the second clock tick.
     makeExit: () => ({ onTrade: () => null, onTick: (now) => (++calls >= 2 ? { reason: 'stall', at: now, ageSec: 12 } : null), kill: (now) => ({ reason: 'kill', at: now, ageSec: 0 }) }),
-    approvalTimeoutSec: 1, tickMs: 1, settleSec: 0,
+    approvalTimeoutSec: 1, tickMs: 1, settleSec: 0, retryDelayMs: 1,
+    pause: (reason) => void paused.push(reason),
   };
   if (o.postLaunch) {
     db.prepare("INSERT INTO coins (mint, symbol, quote, created_ts, meta_status, twitter, total_supply, updated_at) VALUES ('X', 'OTHER', 'SOL', ?, 'done', ?, 1e9, 0)").run(NOW - 10, post.url);
@@ -111,6 +115,35 @@ test('a sell that fails every attempt alerts the owner and is recorded', async (
   assert.ok(messages.some((m) => m.includes('FAILED') && m.includes('by hand')));
   const row = db.prepare('SELECT notes FROM our_launches').get() as { notes: string };
   assert.ok(row.notes.startsWith('SELL FAILED'));
+  assert.ok(paused.length >= 1, 'launching is paused after a failed sell');
+});
+
+test('a launch whose outcome is unknown pauses launching, finds the bag and sells it', async () => {
+  const s = setup();
+  const launch = s.venue.launch.bind(s.venue);
+  s.venue.launch = async (prm) => {
+    await launch(prm); // it landed...
+    throw new NotLandedError('RPC unreachable for 90 s', 'sig', true); // ...but the venue could not tell
+  };
+  const r = await runLaunch(s.deps, post, draft, 'x');
+  assert.equal(r.status === 'launched' && r.exit?.reason, 'recovery');
+  assert.ok(paused.some((p) => p.includes('uncertain')));
+  assert.equal(s.venue.curve.vSol < 30.001 + 6.5, true);
+  const row = s.db.prepare('SELECT notes FROM our_launches').get() as { notes: string };
+  assert.ok(row.notes.includes('recovery'), row.notes);
+});
+
+test('a launch that certainly did not land, or landed and failed, stops without pausing', async () => {
+  for (const err of [new NotLandedError('blockhash expired', 'sig', false), new LaunchFailedError('custom program error', 'sig')]) {
+    const s = setup();
+    paused.length = 0;
+    s.venue.launch = async () => {
+      throw err;
+    };
+    const r = await runLaunch(s.deps, post, draft, 'x');
+    assert.deepEqual([r.status, r.status === 'failed' && r.stage], ['failed', 'launch']);
+    assert.equal(paused.length, 0);
+  }
 });
 
 test('the bag is sold before the curve completes', async () => {

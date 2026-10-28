@@ -33,7 +33,9 @@ test('bags left by an earlier run are sold on start, and failures are reported',
   const r = await sellLeftoverBags(db, venue, notifier, PLAYBOOK, { now });
   assert.equal(r.checked, 4);
   assert.deepEqual(r.sold, ['HELD']);
-  assert.deepEqual(r.failed, ['STUCK']);
+  // An RPC error while checking is not "no bag": NEVER could not be checked, so it counts as failed too.
+  assert.deepEqual(r.failed, ['STUCK', 'NEVER']);
   assert.ok(messages.some((m) => m.includes('STUCK') && m.includes('by hand')));
+  assert.ok(messages.some((m) => m.includes('NEVER') && m.includes('stays paused')));
   assert.ok((db.prepare(`SELECT notes FROM our_launches WHERE mint = 'HELD'`).get() as { notes: string }).notes.includes('leftover bag sold'));
 });

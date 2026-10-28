@@ -24,9 +24,12 @@ export async function sellLeftoverBags(
     out.checked++;
     let held: bigint;
     try {
+      // A launch that never landed has no token account, which reads as 0; an error means the RPC failed, and the
+      // bag may well be there.
       held = await venue.tokenBalance(mint);
-    } catch {
-      // A launch that never landed has no token account: nothing to sell.
+    } catch (e) {
+      out.failed.push(mint);
+      await notifier.send(`Could not check ${mint} for a leftover bag (${(e as Error).message}); launching stays paused until it is checked.`);
       continue;
     }
     if (held <= 0n) continue;
