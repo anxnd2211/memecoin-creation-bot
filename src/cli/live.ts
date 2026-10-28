@@ -116,6 +116,9 @@ async function forkRun(): Promise<void> {
   console.log(`\nResult: ${JSON.stringify(r, (_, v) => (typeof v === 'bigint' ? v.toString() : v), 1)}`);
 }
 
+/** Trades on a coin buffered from just before its launch was sent until the exit takes over. */
+const early = new Map<string, { trades: LiveTrade[]; off: () => void }>();
+
 /** The launch sequence's dependencies for this mode; `feed` is the live trade feed (null in fork runs). */
 function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): LaunchDeps {
   return {
@@ -134,7 +137,22 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
       if (!jwt) throw new Error('PINATA_JWT is not set: metadata cannot be uploaded');
       return pinMetadata(draft, { jwt });
     },
-    watch: (mint, _landing, onTrade) => (feed ? feed.subscribe(mint, venue.dev, onTrade) : () => {}),
+    prewatch: (mint) => {
+      if (!feed) return;
+      const b = { trades: [] as LiveTrade[], off: () => {} };
+      b.off = feed.subscribe(mint, venue.dev, (t) => void b.trades.push(t));
+      early.set(mint, b);
+    },
+    watch: (mint, _landing, onTrade) => {
+      if (!feed) return () => {};
+      // Trades that arrived while the launch confirmed go first; switching subscriptions is synchronous, so none fall
+      // between the two.
+      const b = early.get(mint);
+      early.delete(mint);
+      b?.off();
+      for (const t of b?.trades ?? []) onTrade(t);
+      return feed.subscribe(mint, venue.dev, onTrade);
+    },
     makeExit: (policy, landing) => {
       // Without a live feed (fork runs) only our coin's trades arrive, so a quiet coin must not look like a lost feed.
       const engine = new ExitEngine(policy, landing, venue.dev, feed ? {} : { feedLostSec: Infinity });

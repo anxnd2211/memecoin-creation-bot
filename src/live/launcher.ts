@@ -40,6 +40,11 @@ export interface LaunchDeps {
     /** Sell now; returns the decision already made if there is one. */
     kill(nowMs: number): ExitDecision;
   };
+  /**
+   * Starts listening for the coin's trades before the launch is sent (the mint address is known in advance), so the
+   * snipers' trades in the launch's first slots are not missed while the launch confirms; `watch` then replays them.
+   */
+  prewatch?: (mint: string) => void;
   /** A mint keypair's secret key ending in "pump" (src/live/vanity.ts), or null for a random address. */
   nextMint?: () => Uint8Array | null;
   /** Seconds to wait for the owner's answer. */
@@ -172,6 +177,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     feedLagSec: lag,
   });
   const vaultBefore = await d.venue.creatorVaultLamports().catch(() => 0n);
+  d.prewatch?.(mint);
   let fill: LaunchFill;
   try {
     fill = await d.venue.launch(params);
