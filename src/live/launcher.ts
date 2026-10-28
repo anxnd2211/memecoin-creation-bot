@@ -3,7 +3,7 @@ import { Keypair } from '@solana/web3.js';
 import { CURVE_FEE_RATE, LAUNCH_VIRTUAL_SOL as LAUNCH_VSOL } from '../chain/curve.ts';
 import { exitFor, type Playbook } from '../playbook.ts';
 import type { ExitPolicy } from '../sim/simulate.ts';
-import { boardState, formatGates, launchBoard, type BoardState, type Limits } from './board.ts';
+import { accountRecord, boardState, formatGates, launchBoard, type BoardState, type Limits } from './board.ts';
 import { launchPnl, recordOutcome, recordPlan } from './dossier.ts';
 import type { CoinDraft, ExitDecision, LaunchFill, LiveTrade, Notifier, PostInfo, SellFill, Venue } from './types.ts';
 
@@ -108,10 +108,12 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   const lag = d.feedLag();
   const policy = exitFor(p, lag);
   const card = launchBoard({ playbook: p, limits: d.limits, post, draft, state: await state(), compliance, preflight, approved: true });
+  const rec = accountRecord(d.db, post.handle);
   const answer = await d.notifier.askApproval({
     text:
       `Launch $${draft.symbol} "${draft.name}"? (${d.venue.mode})\n` +
       `Post: ${post.url} (${Math.round(d.now() - post.postedAt)} s old)\nWebsite: ${draft.website}\n` +
+      (rec ? `@${post.handle} so far: ${rec.launches} launches on ${rec.posts} posts, ${rec.busy} drew buyers\n` : '') +
       `Dev buy ${p.devBuySol} SOL; exit: ${policy.name}; feed lag ${lag === null ? 'unknown' : `${lag.toFixed(1)} s`}\n\n` +
       formatGates(card.gates.filter((g) => g.name !== 'owner approval')),
     image: draft.image.bytes,

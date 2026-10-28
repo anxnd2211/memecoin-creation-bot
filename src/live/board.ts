@@ -226,3 +226,21 @@ export function boardState(
     killed: extra.killed,
   };
 }
+
+/**
+ * The X account's record in the observer's data: launches that linked its posts, how many drew buyers, and how many
+ * posts they covered. Shown on the launch card; accounts with 3+ earlier launches and 60%+ busy made the most.
+ */
+export function accountRecord(db: DatabaseSync, handle: string): { launches: number; busy: number; posts: number } | null {
+  try {
+    const h = handle.toLowerCase().replace(/[^a-z0-9_]/g, '');
+    const rows = db
+      .prepare(`SELECT twitter, unique_buyers - early_buyers >= 10 AS busy FROM coins WHERE twitter LIKE ?`)
+      .all(`%/${h}/status/%`) as { twitter: string; busy: number }[];
+    const mine = rows.filter((r) => new RegExp(`(?:x|twitter)\\.com/${h}/status/(\\d+)`, 'i').test(r.twitter));
+    const posts = new Set(mine.map((r) => r.twitter.match(/status\/(\d+)/)?.[1]));
+    return { launches: mine.length, busy: mine.filter((r) => r.busy).length, posts: posts.size };
+  } catch {
+    return null;
+  }
+}

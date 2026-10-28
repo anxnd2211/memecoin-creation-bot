@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { PLAYBOOK } from '../src/playbook.ts';
-import { DEFAULT_LIMITS, boardState, launchBoard, type BoardInput, type BoardState } from '../src/live/board.ts';
+import { DEFAULT_LIMITS, accountRecord, boardState, launchBoard, type BoardInput, type BoardState } from '../src/live/board.ts';
 import type { CoinDraft, PostInfo } from '../src/live/types.ts';
 
 const NOW = 1_800_000_000;
@@ -94,4 +94,7 @@ test('the board reads the observer database', () => {
   assert.equal(s.tickerLaunchesLast10m, 2);
   assert.equal(s.ours!.lastLaunchTs, NOW - 3000);
   assert.equal(s.ours!.deadInARow, 1);
+  db.exec('ALTER TABLE coins ADD COLUMN unique_buyers INTEGER DEFAULT 0; ALTER TABLE coins ADD COLUMN early_buyers INTEGER DEFAULT 0;');
+  db.exec("UPDATE coins SET unique_buyers = 20 WHERE mint = 'a'");
+  assert.deepEqual(accountRecord(db, 'SomeOne'), { launches: 3, busy: 1, posts: 3 });
 });
