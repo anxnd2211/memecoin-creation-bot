@@ -47,7 +47,9 @@ if (!['fork', 'dry', 'live'].includes(mode)) {
   process.exit(1);
 }
 const KILL_FILE = 'data/KILL';
-const killed = () => existsSync(KILL_FILE);
+/** Set when the process is shutting down: no launch may start, even one already approved. */
+let stopping = false;
+const killed = () => stopping || existsSync(KILL_FILE);
 const store = new Store(config.dbPath);
 const db: DatabaseSync = store.db;
 const now = () => Math.floor(Date.now() / 1000);
@@ -158,7 +160,14 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
       early.get(mint)?.off();
       early.delete(mint);
     },
-    pause: (reason) => writeFileSync(KILL_FILE, `${new Date().toISOString()} ${reason}\n`),
+    pause: (reason) => {
+      try {
+        writeFileSync(KILL_FILE, `${new Date().toISOString()} ${reason}\n`);
+      } catch (e) {
+        // The sell must go on even if the kill file cannot be written.
+        log.error('could not write the kill file', { err: (e as Error).message });
+      }
+    },
     resolvePending: async (launches, postId) => {
       const read = async (uri: string | null): Promise<string | null | undefined> => {
         if (!uri) return null;
@@ -230,7 +239,6 @@ async function liveRun(): Promise<void> {
   );
 
   let inFlight: Promise<void> | null = null;
-  let stopping = false;
   const launch = async (post: PostInfo, draft: CoinDraft, narrative: string) => {
     if (busy || stopping) {
       await tg.send(`${stopping ? 'Shutting down' : 'Busy with a launch'}; $${draft.symbol} skipped.`);
@@ -250,6 +258,7 @@ async function liveRun(): Promise<void> {
       }
     })();
     await inFlight;
+    inFlight = null;
   };
 
   const onCommand = async (m: CommandMessage) => {

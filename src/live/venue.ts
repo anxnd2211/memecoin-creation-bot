@@ -164,6 +164,14 @@ export class NotLandedError extends Error {
 }
 
 /** A launch that landed on chain but failed: no coin was created, the network fee was spent. */
+/** The launch failed before anything was sent (blockhash, preflight, signing): certainly no coin. */
+export class NotSentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotSentError';
+  }
+}
+
 export class LaunchFailedError extends Error {
   readonly signature: string;
   constructor(message: string, signature: string) {
@@ -1123,13 +1131,21 @@ export class MainnetVenue implements Venue {
   async launch(p: LaunchParams): Promise<LaunchFill> {
     const signer = this.requireSigner();
     const mint = p.mintSecret ? Keypair.fromSecretKey(p.mintSecret) : Keypair.generate();
-    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
-    const { built, sim } = await this.preflight(p, mint.publicKey, blockhash);
-    log.info(
-      `launch preflight passed: ${sim.computeUnits} compute units (limit ${built.computeUnitLimit}), ${built.size} bytes; ` +
-        `sending ${mint.publicKey.toBase58()}`,
-    );
-    built.tx.sign([signer, mint]);
+    // Everything up to the first send: a failure here means certainly no coin.
+    let prepared: { built: BuiltLaunch; lastValidBlockHeight: number };
+    try {
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
+      const { built, sim } = await this.preflight(p, mint.publicKey, blockhash);
+      log.info(
+        `launch preflight passed: ${sim.computeUnits} compute units (limit ${built.computeUnitLimit}), ${built.size} bytes; ` +
+          `sending ${mint.publicKey.toBase58()}`,
+      );
+      built.tx.sign([signer, mint]);
+      prepared = { built, lastValidBlockHeight };
+    } catch (e) {
+      throw new NotSentError(`launch not sent: ${(e as Error).message}`);
+    }
+    const { built, lastValidBlockHeight } = prepared;
     const landed = await this.sendAndConfirm(built.tx, lastValidBlockHeight, `launch of ${mint.publicKey.toBase58()}`);
     if (landed.err) {
       throw new LaunchFailedError(
@@ -1150,7 +1166,11 @@ export class MainnetVenue implements Venue {
     const mint = built.mint.toBase58();
     const base = { mint, signature: landed.signature, slot: landed.slot, landedAt: landed.landedAt, simulated: false };
     const tip = built.tip?.lamports ?? 0n;
-    const tx = await this.fetchTransaction(landed.signature, LAUNCH_FILL_WAIT_MS).catch(() => null);
+    // A hung RPC call must not hold the exit back: the wait is capped whatever the call does.
+    const tx = await Promise.race([
+      this.fetchTransaction(landed.signature, LAUNCH_FILL_WAIT_MS).catch(() => null),
+      sleep(LAUNCH_FILL_WAIT_MS + 250).then(() => null),
+    ]);
     if (tx?.meta) {
       const meta = tx.meta;
       const devTokens = tokenBalanceOf(meta.postTokenBalances, this.dev, mint) - tokenBalanceOf(meta.preTokenBalances, this.dev, mint);

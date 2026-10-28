@@ -55,20 +55,29 @@ export interface LaunchOutcome {
   /** Creator vault lamports before the launch and at settlement. */
   vaultBefore: bigint;
   vaultAfter: bigint;
+  /**
+   * The wallet's balance change from just before the launch to settlement, when both reads worked: the ground truth,
+   * covering sells that landed late or out of sight. Null falls back to the fills.
+   */
+  walletDeltaLamports?: bigint | null;
   /** Other wallets that bought after the launch window. */
   laterBuyers: number;
   note: string;
 }
 
 /**
- * The launch's result in SOL: sell proceeds minus everything the launch cost (dev buy with fees, rent, network fees,
- * tips) plus the creator fees it earned. Rent on the dev's token account stays locked until it is closed, so it counts
- * as a cost here.
+ * The launch's result in SOL: on a real launch, the wallet's balance change around it (when it could be read) plus
+ * the creator fees it earned; otherwise sell proceeds minus everything the launch cost (dev buy with fees, rent,
+ * network fees, tips) plus the fees. Rent on the dev's token account stays locked until it is closed, so it counts as a
+ * cost either way.
  */
 export function launchPnl(o: LaunchOutcome): number {
+  const fees = o.vaultAfter - o.vaultBefore;
+  if (o.walletDeltaLamports !== undefined && o.walletDeltaLamports !== null && !o.launch.simulated) {
+    return Number(o.walletDeltaLamports + fees) / LAMPORTS;
+  }
   const spent = o.launch.lamportsSpent + o.launch.rentLamports + o.launch.networkFeeLamports;
   const back = (o.sell?.lamportsReceived ?? 0n) - (o.sell?.networkFeeLamports ?? 0n);
-  const fees = o.vaultAfter - o.vaultBefore;
   return Number(back - spent + fees) / LAMPORTS;
 }
 

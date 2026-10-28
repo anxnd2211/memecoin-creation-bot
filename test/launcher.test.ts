@@ -6,7 +6,7 @@ import { Store } from '../src/store/db.ts';
 import { DEFAULT_LIMITS } from '../src/live/board.ts';
 import { runLaunch, type LaunchDeps } from '../src/live/launcher.ts';
 import type { CoinDraft, LaunchFill, LiveTrade, Notifier, PostInfo, Venue } from '../src/live/types.ts';
-import { LaunchFailedError, NotLandedError } from '../src/live/venue.ts';
+import { LaunchFailedError, NotLandedError, NotSentError } from '../src/live/venue.ts';
 
 const NOW = 1_800_000_000;
 const post: PostInfo = { url: 'https://x.com/news/status/1983000000000000000', handle: 'news', postId: '1983000000000000000', postedAt: NOW - 20, authorName: 'News', text: 'something happened' };
@@ -134,7 +134,7 @@ test('a launch whose outcome is unknown pauses launching, finds the bag and sell
 });
 
 test('a launch that certainly did not land, or landed and failed, stops without pausing', async () => {
-  for (const err of [new NotLandedError('blockhash expired', 'sig', false), new LaunchFailedError('custom program error', 'sig')]) {
+  for (const err of [new NotLandedError('blockhash expired', 'sig', false), new LaunchFailedError('custom program error', 'sig'), new NotSentError('blockhash fetch failed')]) {
     const s = setup();
     paused.length = 0;
     s.venue.launch = async () => {
@@ -199,4 +199,17 @@ test('launches the observer has not read yet are read directly, and one linking 
     assert.equal(r.status, expected);
     assert.ok(asked >= 1);
   }
+});
+
+test('a launch reported certainly not landed is still sold if its bag turns up', async () => {
+  const s = setup();
+  paused.length = 0;
+  const launch = s.venue.launch.bind(s.venue);
+  s.venue.launch = async (prm) => {
+    await launch(prm); // it did land...
+    throw new NotLandedError('expired; status lookups failed', 'sig', false); // ...but a failing RPC said it had not
+  };
+  const r = await runLaunch(s.deps, post, draft, 'x');
+  assert.equal(r.status === 'launched' && r.exit?.reason, 'recovery');
+  assert.ok(paused.some((p) => p.includes('bag is there')));
 });

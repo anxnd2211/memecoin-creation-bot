@@ -6,7 +6,9 @@ import type { ExitPolicy } from '../sim/simulate.ts';
 import { accountRecord, boardState, formatGates, launchBoard, pendingLaunchUris, type BoardState, type Limits } from './board.ts';
 import { launchPnl, recordOutcome, recordPlan } from './dossier.ts';
 import type { CoinDraft, ExitDecision, LaunchFill, LiveTrade, Notifier, PostInfo, SellFill, Venue } from './types.ts';
-import { LaunchFailedError, NotLandedError } from './venue.ts';
+import { LAUNCH_RENT_ESTIMATE_LAMPORTS, LaunchFailedError, NotLandedError, NotSentError } from './venue.ts';
+import { PreflightError } from './types.ts';
+import { config } from '../config.ts';
 
 /**
  * One launch, start to finish: board, preflight, approval, a last freshness check, the launch, the live exit, the
@@ -111,13 +113,15 @@ async function sellUntilGone(
     // The first round uses the playbook's limit; later rounds widen it.
     const maxSlippage = i === 0 ? d.playbook.sellMaxSlippage : r.maxSlippage;
     try {
-      const sell = await d.venue.sellAll(mint, { maxSlippage, ladder: [...r.ladder], priorityMicroLamports: r.priorityMicroLamports });
+      // Later rounds never pay less priority than the configured default.
+      const priority = r.priorityMicroLamports === undefined ? undefined : Math.max(config.priorityMicroLamports, r.priorityMicroLamports);
+      const sell = await d.venue.sellAll(mint, { maxSlippage, ladder: [...r.ladder], priorityMicroLamports: priority });
       return { sell, gone: true, rounds: i + 1, error: null };
     } catch (e) {
       error = (e as Error).message;
       if (i === 0) {
         d.pause?.(`sell of ${mint} failed: ${error}`);
-        await d.notifier.send(`Sell of $${symbol} failed (${error}). Launching paused; retrying with wider limits.`);
+        void d.notifier.send(`Sell of $${symbol} failed (${error}). Launching paused; retrying with wider limits.`);
       }
       const left = await d.venue.tokenBalance(mint).catch(() => null);
       if (left === 0n) return { sell: null, gone: true, rounds: i + 1, error };
@@ -170,7 +174,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
         // Still waiting on the observer: read those launches' metadata directly.
         if (!d.resolvePending) return s;
         const r = await d.resolvePending(pendingLaunchUris(d.db, post, d.now()), post.postId).catch(() => null);
-        return r ? { ...s, postLaunches: (s.postLaunches ?? 0) + r.linked, pendingLaunches: r.unknown } : s;
+        return r && s.postLaunches !== null ? { ...s, postLaunches: s.postLaunches + r.linked, pendingLaunches: r.unknown } : s;
       }
       await sleep(500);
     }
@@ -266,6 +270,8 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   // Creator fees are counted as the vault's growth over the launch; if it cannot be read now, none are counted, so a
   // failed read never books other coins' fees as this launch's profit.
   const vaultBefore = await d.venue.creatorVaultLamports().catch(() => null);
+  // The wallet's balance around the whole launch is the ground truth for its result, whatever the RPC reported.
+  const walletBefore = await d.venue.balanceLamports().catch(() => null);
   d.prewatch?.(mint);
   let fill: LaunchFill;
   let recovered = false;
@@ -273,20 +279,34 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     fill = await d.venue.launch(params);
   } catch (e) {
     const err = e as Error;
-    const noCoin = err instanceof LaunchFailedError || (err instanceof NotLandedError && !err.uncertain);
-    if (noCoin) {
+    // Failures before anything was sent, or a launch that landed and failed, created no coin.
+    if (err instanceof NotSentError || err instanceof PreflightError || err instanceof LaunchFailedError) {
       d.unwatch?.(mint);
-      await d.notifier.send(`Launch of $${draft.symbol} failed, no coin was created: ${err.message}`);
+      void d.notifier.send(`Launch of $${draft.symbol} failed, no coin was created: ${err.message}`);
       return { status: 'failed', stage: 'launch', detail: err.message };
     }
-    // The launch may have landed: stop launching, look for the bag, and sell whatever is there.
-    d.pause?.(`launch of ${mint} ended uncertain: ${err.message}`);
-    await d.notifier.send(`Launch of $${draft.symbol} (${mint}) ended uncertain (${err.message}). Launching paused; checking for the bag.`);
-    const held = await findBag(d.venue, mint, (d.retryDelayMs ?? 5_000) / 2.5);
+    // Anything else may have landed, even a "not landed" verdict reached through a failing RPC: look for the bag on
+    // two reads a few seconds apart before believing there is none.
+    const certain = err instanceof NotLandedError && !err.uncertain;
+    if (!certain) {
+      d.pause?.(`launch of ${mint} ended uncertain: ${err.message}`);
+      void d.notifier.send(`Launch of $${draft.symbol} (${mint}) ended uncertain (${err.message}). Launching paused; checking for the bag.`);
+    }
+    const wait = (d.retryDelayMs ?? 5_000) / 2.5;
+    const first = await findBag(d.venue, mint, wait);
+    const held = first === 0n ? (await sleep(wait), await findBag(d.venue, mint, wait)) : first;
     if (held === 0n) {
       d.unwatch?.(mint);
-      await d.notifier.send(`No bag found for ${mint}: the launch did not land. Launching stays paused until /resume.`);
+      void d.notifier.send(
+        certain
+          ? `Launch of $${draft.symbol} did not land: ${err.message}`
+          : `No bag found yet for ${mint}; check the wallet. Launching stays paused until /resume.`,
+      );
       return { status: 'failed', stage: 'launch', detail: err.message };
+    }
+    if (certain) {
+      d.pause?.(`launch of ${mint} reported not landed, but a bag is there`);
+      void d.notifier.send(`Launch of $${draft.symbol} was reported not landed, but the bag is there: selling it. Launching paused.`);
     }
     recovered = true;
     fill = {
@@ -296,12 +316,12 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
       landedAt: Date.now(),
       devTokens: held ?? 0n,
       lamportsSpent: BigInt(Math.round(p.devBuySol * 1e9)),
-      rentLamports: 9_265_920n,
+      rentLamports: LAUNCH_RENT_ESTIMATE_LAMPORTS,
       networkFeeLamports: 0n,
       simulated: false,
     };
   }
-  if (!recovered) await d.notifier.send(`Launched $${draft.symbol}: ${fill.mint} (${fill.signature}). Exit: ${policy.name}`);
+  if (!recovered) void d.notifier.send(`Launched $${draft.symbol}: ${fill.mint} (${fill.signature}). Exit: ${policy.name}`);
 
   // 6. The exit: trades and clock ticks into the engine until it says sell, then the whole bag in one sell.
   const engine = d.makeExit(policy, fill);
@@ -343,12 +363,14 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   await sleep((d.settleSec ?? 30) * 1000);
   stopWatching();
   const vaultAfter = vaultBefore === null ? null : await d.venue.creatorVaultLamports().catch(() => null);
+  const walletAfter = walletBefore === null ? null : await d.venue.balanceLamports().catch(() => null);
   const outcome = {
     launch: fill,
     sell,
     exit: decision,
     vaultBefore: vaultBefore ?? 0n,
     vaultAfter: vaultAfter ?? vaultBefore ?? 0n,
+    walletDeltaLamports: walletBefore !== null && walletAfter !== null ? walletAfter - walletBefore : null,
     laterBuyers: laterBuyers.size,
     note,
   };
