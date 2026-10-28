@@ -35,8 +35,11 @@ The goal for the night: make the bot ready for its first launches with real SOL.
 
 ## What was verified
 
-- **Fork runs** (pump.fun's real programs on a local copy, a recorded launch's traders replayed in real time): +5.12
-  and +6.85 SOL, each sold on a stall at 13–16 s.
+- **Fork runs** (pump.fun's real programs on a local copy, a recorded launch's traders replayed in real time):
+  - Two single runs: +5.12 and +6.85 SOL, each sold on a stall at 13–16 s.
+  - A batch of the 12 latest recorded 5 SOL launches (`npm run live -- --mode fork --batch 12`): +1.93 SOL a launch
+    against +2.08 in the backtest on the same coins. Nine were within 0.03 SOL of the backtest, and the worst launch
+    lost 0.10.
 - **Live shadow, 88 launches** (the exit run on real launches as if we were their dev, public RPC, 1.25 s lag):
   - +4.80 SOL a launch, 86% profitable.
   - Inside our band, our exit beat what the devs did: 3 SOL +1.57 vs +1.12, 3.2–4.9 SOL +2.78 vs +1.96, 5 SOL a tie.
@@ -54,6 +57,9 @@ The goal for the night: make the bot ready for its first launches with real SOL.
   s).
 - **Metadata hosting.** pump.fun's own metadata upload sits behind a Cloudflare bot check, and the bot does not work
   around it. Metadata goes to your Pinata account instead.
+- **IPFS gateways.** ipfs.io, dweb.link and Pinata's gateway rate-limit this machine (HTTP 429) because the observer
+  fetches every launch's metadata. That blocked first-on-post checks, and it would have blocked every upload check.
+  Both now ask every gateway at once, and the observer puts the working ones first.
 - **Fees.** Successful 5 SOL devs land launches with about a 0.005 SOL Jito tip and almost no priority fee. Our Sender
   tip defaults to 0.001 SOL.
 
