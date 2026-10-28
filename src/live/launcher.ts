@@ -1,0 +1,183 @@
+import type { DatabaseSync } from 'node:sqlite';
+import { Keypair } from '@solana/web3.js';
+import { exitFor, type Playbook } from '../playbook.ts';
+import type { ExitPolicy } from '../sim/simulate.ts';
+import { boardState, formatGates, launchBoard, type BoardState, type Limits } from './board.ts';
+import { launchPnl, recordOutcome, recordPlan } from './dossier.ts';
+import type { CoinDraft, ExitDecision, LaunchFill, LiveTrade, Notifier, PostInfo, SellFill, Venue } from './types.ts';
+
+/**
+ * One launch, start to finish: board, preflight, approval, a last freshness check, the launch, the live exit, the
+ * sell, and the record. Every step that cannot be completed stops the launch before any SOL moves; once the dev buy
+ * has landed, the only goal is to sell the whole bag.
+ */
+
+/** What the launch sequence needs from the rest of the live launcher; the live command wires in the real ones. */
+export interface LaunchDeps {
+  venue: Venue;
+  notifier: Notifier;
+  db: DatabaseSync;
+  playbook: Playbook;
+  limits: Limits;
+  /** Unix seconds now. */
+  now: () => number;
+  killed: () => boolean;
+  /** The feed's lag behind the chain in seconds (p95), or null when unknown. */
+  feedLag: () => number | null;
+  checkCompliance: (draft: CoinDraft, post: PostInfo) => string[];
+  /** Uploads the metadata and returns its URI (a placeholder in fork and dry runs). */
+  uploadMetadata: (draft: CoinDraft) => Promise<string>;
+  /**
+   * Streams our coin's trades to `onTrade` until the returned function is called. In fork runs this replays a
+   * recorded launch on the fork; live it is the trade feed.
+   */
+  watch: (mint: string, landing: LaunchFill, onTrade: (t: LiveTrade) => void) => () => void;
+  /** The exit engine for a policy (src/live/exit.ts): fed trades and clock ticks, it says when to sell. */
+  makeExit: (policy: ExitPolicy, landing: LaunchFill) => {
+    onTrade(t: LiveTrade): ExitDecision | null;
+    onTick(nowMs: number): ExitDecision | null;
+    kill(): void;
+  };
+  /** Seconds to wait for the owner's answer. */
+  approvalTimeoutSec?: number;
+  /** Milliseconds between exit-engine clock ticks. */
+  tickMs?: number;
+  /** Seconds after the sell to keep counting later buyers before the result is recorded. */
+  settleSec?: number;
+}
+
+export type LaunchResult =
+  | { status: 'blocked'; stage: 'board' | 'preflight' | 'approval' | 'recheck' | 'metadata'; detail: string }
+  | { status: 'failed'; stage: 'launch'; detail: string }
+  | { status: 'launched'; fill: LaunchFill; sell: SellFill | null; exit: ExitDecision | null; pnlNote: string };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft, narrative: string): Promise<LaunchResult> {
+  const p = d.playbook;
+  const balance = async () => {
+    try {
+      return await d.venue.balanceLamports();
+    } catch {
+      return null;
+    }
+  };
+  const state = async (): Promise<BoardState> => boardState(d.db, post, draft.symbol, d.now(), { balanceLamports: await balance(), killed: d.killed() });
+  const compliance = d.checkCompliance(draft, post);
+
+  // 1. The board, before simulating or bothering the owner.
+  const first = launchBoard({ playbook: p, limits: d.limits, post, draft, state: await state(), compliance, preflight: null, approved: null }, 'before preflight');
+  if (!first.pass) {
+    await d.notifier.send(`Launch of $${draft.symbol} blocked:\n${formatGates(first.gates.filter((g) => !g.pass))}`);
+    return { status: 'blocked', stage: 'board', detail: formatGates(first.gates) };
+  }
+
+  // 2. Metadata, then the preflight simulation of the exact launch transaction.
+  let uri: string;
+  try {
+    uri = await d.uploadMetadata(draft);
+  } catch (e) {
+    await d.notifier.send(`Launch of $${draft.symbol} blocked: metadata upload failed: ${(e as Error).message}`);
+    return { status: 'blocked', stage: 'metadata', detail: (e as Error).message };
+  }
+  const mintKey = Keypair.generate();
+  const mintSecret = mintKey.secretKey;
+  const params = { name: draft.name, symbol: draft.symbol, uri, devBuySol: p.devBuySol, mintSecret };
+  let preflight: string;
+  try {
+    await d.venue.preflightLaunch(params);
+    preflight = 'ok';
+  } catch (e) {
+    preflight = (e as Error).message;
+  }
+  if (preflight !== 'ok') {
+    await d.notifier.send(`Launch of $${draft.symbol} blocked: the simulation failed: ${preflight}`);
+    return { status: 'blocked', stage: 'preflight', detail: preflight };
+  }
+
+  // 3. The owner's approval, with every gate on the card.
+  const lag = d.feedLag();
+  const policy = exitFor(p, lag);
+  const card = launchBoard({ playbook: p, limits: d.limits, post, draft, state: await state(), compliance, preflight, approved: true });
+  const answer = await d.notifier.askApproval({
+    text:
+      `Launch $${draft.symbol} "${draft.name}"? (${d.venue.mode})\n` +
+      `Post: ${post.url} (${Math.round(d.now() - post.postedAt)} s old)\nWebsite: ${draft.website}\n` +
+      `Dev buy ${p.devBuySol} SOL; exit: ${policy.name}; feed lag ${lag === null ? 'unknown' : `${lag.toFixed(1)} s`}\n\n` +
+      formatGates(card.gates.filter((g) => g.name !== 'owner approval')),
+    image: draft.image.bytes,
+    timeoutSec: d.approvalTimeoutSec ?? 30,
+  });
+  if (!answer.approved) return { status: 'blocked', stage: 'approval', detail: answer.by };
+
+  // 4. The world may have moved while the owner looked: check the board again, approval included.
+  const final = launchBoard({ playbook: p, limits: d.limits, post, draft, state: await state(), compliance, preflight, approved: true });
+  if (!final.pass) {
+    await d.notifier.send(`Approved, but $${draft.symbol} no longer passes:\n${formatGates(final.gates.filter((g) => !g.pass))}`);
+    return { status: 'blocked', stage: 'recheck', detail: formatGates(final.gates) };
+  }
+
+  // 5. Launch. The record is written first, so a crash mid-launch still leaves it.
+  const mint = mintKey.publicKey.toBase58();
+  recordPlan(d.db, {
+    mint,
+    mode: d.venue.mode,
+    createdTs: d.now(),
+    playbook: p,
+    post,
+    narrative,
+    postAgeSec: d.now() - post.postedAt,
+    firstOnPost: true,
+    exitPlan: policy.name,
+    feedLagSec: lag,
+  });
+  const vaultBefore = await d.venue.creatorVaultLamports().catch(() => 0n);
+  let fill: LaunchFill;
+  try {
+    fill = await d.venue.launch(params);
+  } catch (e) {
+    await d.notifier.send(`Launch of $${draft.symbol} failed: ${(e as Error).message}`);
+    return { status: 'failed', stage: 'launch', detail: (e as Error).message };
+  }
+  await d.notifier.send(`Launched $${draft.symbol}: ${fill.mint} (${fill.signature}). Exit: ${policy.name}`);
+
+  // 6. The exit: trades and clock ticks into the engine until it says sell, then the whole bag in one sell.
+  const engine = d.makeExit(policy, fill);
+  let decision: ExitDecision | null = null;
+  const laterBuyers = new Set<string>();
+  let sold = false;
+  const stopWatching = d.watch(mint, fill, (t) => {
+    if (t.isBuy && !t.dev && t.receivedAt - fill.landedAt > 2_000) laterBuyers.add(t.wallet);
+    if (!decision && !sold) decision = engine.onTrade(t);
+  });
+  const tickMs = d.tickMs ?? 200;
+  while (!decision) {
+    if (d.killed()) {
+      engine.kill();
+      decision = { reason: 'kill', at: Date.now(), ageSec: (Date.now() - fill.landedAt) / 1000 };
+      break;
+    }
+    decision = engine.onTick(Date.now());
+    if (!decision) await sleep(tickMs);
+  }
+  let sell: SellFill | null = null;
+  let note: string;
+  try {
+    sell = await d.venue.sellAll(mint, { maxSlippage: p.sellMaxSlippage, ladder: [0.2, 0.35] });
+    sold = true;
+    note = `sold on ${decision!.reason} at ${decision!.ageSec.toFixed(1)} s in ${sell.attempts} attempt(s)`;
+  } catch (e) {
+    note = `SELL FAILED: ${(e as Error).message}`;
+    await d.notifier.send(`SELL OF $${draft.symbol} FAILED after retries: ${(e as Error).message}. Sell ${mint} by hand now.`);
+  }
+
+  // 7. Keep counting later buyers for a while, then record the result.
+  await sleep((d.settleSec ?? 30) * 1000);
+  stopWatching();
+  const vaultAfter = await d.venue.creatorVaultLamports().catch(() => vaultBefore);
+  const outcome = { launch: fill, sell, exit: decision, vaultBefore, vaultAfter, laterBuyers: laterBuyers.size, note };
+  recordOutcome(d.db, mint, outcome);
+  const pnl = launchPnl(outcome);
+  await d.notifier.send(`$${draft.symbol}: ${note}. Result ${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)} SOL; ${laterBuyers.size} later buyers.`);
+  return { status: 'launched', fill, sell, exit: decision, pnlNote: note };
+}
