@@ -6,8 +6,9 @@ you can afford to lose entirely.
 
 ## What the bot does on each launch (playbook v3)
 
-1. **A candidate post arrives.** Either the X watcher streams it from a watched account, or you send
-   `/launch <post url> | <TICKER> | <Name> | <source url>` with a photo.
+1. **A candidate post arrives.** The X watcher streams it from a watched account, or you send it yourself as a
+   photo with the caption `/launch <post url>`. With just the link, the ticker and name are drafted from the post's
+   text. To choose them yourself, use `/launch <post url> | <TICKER> | <Name> | <source url>`.
 2. **The coin is drafted:** name, ticker, image and description; the X link is the post; the website is the
    narrative's source. A compliance check runs.
 3. **The launch board runs**, every gate failing closed:
