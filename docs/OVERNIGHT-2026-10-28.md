@@ -40,6 +40,10 @@ The goal for the night: make the bot ready for its first launches with real SOL.
   - A batch of the 12 latest recorded 5 SOL launches (`npm run live -- --mode fork --batch 12`): +1.93 SOL a launch
     against +2.08 in the backtest on the same coins. Nine were within 0.03 SOL of the backtest, and the worst launch
     lost 0.10.
+  - A batch of 30: +2.33 against +2.49, with all 30 launched. The gap is mostly creator fees, counted for 60 s after
+    the sell here and for 10 minutes in the backtest.
+- **Live shadow in our band, 102 launches at 3–5.2 SOL:** +2.09 SOL a launch, 84% profitable, against +1.85 for what
+  those devs did. Ours did better on two launches in three.
 - **Live shadow, 88 launches** (the exit run on real launches as if we were their dev, public RPC, 1.25 s lag):
   - +4.80 SOL a launch, 86% profitable.
   - Inside our band, our exit beat what the devs did: 3 SOL +1.57 vs +1.12, 3.2–4.9 SOL +2.78 vs +1.96, 5 SOL a tie.

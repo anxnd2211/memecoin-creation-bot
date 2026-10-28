@@ -39,7 +39,8 @@ each required to replicate in both halves of the hours:
 | Flow exit vs the 20 s timer by real delay, 713 launches at 5 SOL (slots are 0.213 s, not 0.4) | +0.22 at 0.4 s, +0.17 at 1–1.5 s, +0.12 at 2.5–3 s (all beyond noise), +0.05 at 5 s (noise) |
 | 15 s timer vs 20 s timer, same launches | 3.60 vs 3.49 SOL a launch |
 | Live shadow runs on the public feed (exit only, 3 SOL+ launches, no link rules) | 14 runs +3.45 (all profitable); 10 runs +2.55 |
-| Live shadow session in our band, 2026-10-28 01:08–02:10 UTC (86 launches at 3–5.2 SOL, feed lag 1.12 s) | +2.21 a launch (median +1.36) against +2.00 for the recorded devs (+0.21, 90% −0.30 to +0.70); ours did better on 66% of launches. The recorded devs started selling at a median 4.5 s, 77% before 10 s |
+| Live shadow session in our band, 2026-10-28 01:08–02:14 UTC (102 launches at 3–5.2 SOL, feed lag 1.41 s) | +2.09 a launch (median +1.25, 84% profitable) against +1.85 for the recorded devs. At 86 runs: +0.21 (90% −0.30 to +0.70), ours better on 66% of launches. 13 exits fell back to the 15 s timer when the lag passed 3 s. The recorded devs started selling at a median 4.5 s, 77% before 10 s |
+| Fork batch, 30 latest recorded 5 SOL launches through the live launcher (`npm run live -- --mode fork --batch 30`) | +2.33 a launch against +2.49 in the backtest on the same coins. The gap is mostly creator fees, counted for 60 s after the sell here and for 10 minutes in the backtest |
 | Live shadow session, 2026-10-28 00:38–01:08 UTC (88 launches, feed lag 1.25 s, all flow exits) | +4.80 a launch, 86% profitable. Ours beat the recorded dev on 56% of launches. Inside our band: 3 SOL +1.57 vs +1.12, 3.2–4.9 SOL +2.78 vs +1.96, 5 SOL +2.13 vs +2.22 (10 runs). Above 5.2 SOL the devs who held runners for minutes did better (+10.64 vs +8.11), the tail no exit predicted in time |
 
 The sealed launches (22:35–23:09) had only 2 that met every v3 rule: not enough to confirm it yet.
