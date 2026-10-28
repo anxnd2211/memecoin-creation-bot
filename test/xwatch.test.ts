@@ -21,6 +21,12 @@ test('stream lines become candidates with the post time from the ID', () => {
   assert.equal(c.url, 'https://x.com/SomeOne/status/1983000000000000000');
   assert.equal(c.handle, 'someone');
   assert.equal(c.postedAt, Math.floor((472784042358 + 1288834974657) / 1000));
+  assert.equal(c.imageUrl, null);
+  const withPhoto = parseStreamLine(JSON.stringify({
+    data: { id: '1983000000000000002', text: 'look', author_id: '42', attachments: { media_keys: ['3_1'] } },
+    includes: { users: [{ id: '42', username: 'a' }], media: [{ media_key: '3_1', type: 'photo', url: 'https://pbs.twimg.com/media/x.jpg' }] },
+  }))!;
+  assert.equal(withPhoto.imageUrl, 'https://pbs.twimg.com/media/x.jpg');
   assert.equal(parseStreamLine('\r'), null);
   assert.equal(parseStreamLine('{"errors":[{"title":"x"}]}'), null);
 });

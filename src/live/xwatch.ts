@@ -17,6 +17,8 @@ export interface XPostCandidate {
   /** Unix seconds, from the post ID. */
   postedAt: number;
   text: string;
+  /** The post's first image (a photo, or a video's preview), for the coin's image; null when it has none. */
+  imageUrl: string | null;
   /** Local time (ms) the stream delivered it. */
   receivedAt: number;
 }
@@ -44,8 +46,11 @@ export function watchRules(handles: string[]): string[] {
 }
 
 interface StreamPayload {
-  data?: { id: string; text: string; author_id?: string };
-  includes?: { users?: { id: string; username: string }[] };
+  data?: { id: string; text: string; author_id?: string; attachments?: { media_keys?: string[] } };
+  includes?: {
+    users?: { id: string; username: string }[];
+    media?: { media_key: string; type: string; url?: string; preview_image_url?: string }[];
+  };
 }
 
 /** One line of the stream as a candidate; null for heartbeats, errors and posts without an author. */
@@ -63,7 +68,18 @@ export function parseStreamLine(line: string, now = Date.now()): XPostCandidate 
   const user = p.includes?.users?.find((u) => u.id === d.author_id);
   if (!user) return null;
   const url = `https://x.com/${user.username}/status/${d.id}`;
-  return { url, handle: user.username.toLowerCase(), postId: d.id, postedAt: tweetTs(url) ?? Math.floor(now / 1000), text: d.text, receivedAt: now };
+  const keys = d.attachments?.media_keys ?? [];
+  const media = (p.includes?.media ?? []).filter((m) => keys.includes(m.media_key));
+  const imageUrl = media.map((m) => m.url ?? m.preview_image_url).find((u): u is string => Boolean(u)) ?? null;
+  return {
+    url,
+    handle: user.username.toLowerCase(),
+    postId: d.id,
+    postedAt: tweetTs(url) ?? Math.floor(now / 1000),
+    text: d.text,
+    imageUrl,
+    receivedAt: now,
+  };
 }
 
 export class XWatcher {
@@ -125,7 +141,9 @@ export class XWatcher {
     while (!this.stopped) {
       try {
         this.controller = new AbortController();
-        const res = await this.fetchImpl(`${API}?tweet.fields=created_at,author_id&expansions=author_id&user.fields=username`, {
+        const fields = 'tweet.fields=created_at,author_id,attachments&expansions=author_id,attachments.media_keys' +
+          '&user.fields=username&media.fields=url,preview_image_url,type';
+        const res = await this.fetchImpl(`${API}?${fields}`, {
           headers: this.headers(),
           signal: this.controller.signal,
         });
