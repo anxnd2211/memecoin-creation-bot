@@ -4,7 +4,8 @@ import { config } from '../config.ts';
 import { candidateUrls, parseMeta } from '../market/metadata.ts';
 import { log } from '../log.ts';
 import { PLAYBOOK, type Playbook } from '../playbook.ts';
-import { loadBacktestCoins } from '../sim/backtest.ts';
+import { loadBacktestCoins, type BacktestCoin } from '../sim/backtest.ts';
+import { DEFAULT_SIM, simulate } from '../sim/simulate.ts';
 import { Store } from '../store/db.ts';
 import { autoDraft } from '../live/autodraft.ts';
 import { DEFAULT_LIMITS, boardState, launchBoard } from '../live/board.ts';
@@ -28,12 +29,13 @@ const opt = (name: string): string | undefined => {
 };
 
 if (args.includes('--help')) {
-  console.log(`usage: npm run live -- --mode fork|dry|live [--smoke] [--replay <mint>] [--speed 1]
+  console.log(`usage: npm run live -- --mode fork|dry|live [--smoke] [--replay <mint> | --batch N] [--speed 1]
 
 Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   fork  one launch end to end on the local copy of pump.fun: a recorded launch's traders (--replay <mint>, or the most
         recent recorded 5 SOL launch that drew buyers) are replayed against our coin in real time (--speed > 1
-        compresses the exit's windows too), while the exit manager decides when to sell. Approvals are automatic; nothing touches mainnet.
+        compresses the exit's windows too), while the exit manager decides when to sell. --batch N replays the latest
+        N recorded 5 SOL launches one after another and compares each result with the backtest's. Approvals are automatic; nothing touches mainnet.
   dry   the real feed, the observer's database and Telegram: launch cards come from /launch or the X watcher, every
         gate runs and you approve on Telegram, but the launch and the sell are simulated against mainnet, never sent.
   live  real launches from the wallet in LAUNCH_KEYPAIR_PATH, each approved by you on Telegram.
@@ -77,17 +79,47 @@ const PLACEHOLDER_PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAE
 
 async function forkRun(): Promise<void> {
   const venue = await ForkVenue.open();
-  // The recorded launch whose traders we replay: the one asked for, or the latest that met the playbook's rules.
-  const since = now() - 14 * 86400;
-  const coins = loadBacktestCoins(db, since, now() - 600);
+  // The recorded launches whose traders we replay: the one asked for, the latest 5 SOL launch that drew buyers, or
+  // with --batch N the latest N 5 SOL launches, busy or not.
+  const coins = loadBacktestCoins(db, now() - 14 * 86400, now() - 600);
   const wanted = opt('replay');
-  const pick = wanted
-    ? coins.find((c) => c.mint === wanted)
-    : coins.filter((c) => c.launchBuySol >= 4.9 && c.active).sort((a, b) => b.createdTs - a.createdTs)[0];
-  if (!pick) throw new Error(wanted ? `no recorded launch ${wanted}` : 'no recorded 5 SOL launch to replay');
+  const batch = Number(opt('batch') ?? 0);
+  const fiveSol = coins.filter((c) => c.launchBuySol >= 4.95 && c.launchBuySol < 5.2).sort((a, b) => b.createdTs - a.createdTs);
+  const picks = wanted
+    ? coins.filter((c) => c.mint === wanted)
+    : batch > 0
+      ? fiveSol.slice(0, batch)
+      : fiveSol.filter((c) => c.active).slice(0, 1);
+  if (!picks.length) throw new Error(wanted ? `no recorded launch ${wanted}` : 'no recorded 5 SOL launch to replay');
   // Real time by default: the exit engine's clock is the wall clock, so a sped-up replay compresses its windows too.
   const speed = Number(opt('speed') ?? 1);
-  console.log(`Replaying the traders of $${pick.symbol} (${pick.mint}) against our coin on the fork, ${speed}x speed.`);
+  const rows: { symbol: string; status: string; fork: number | null; backtest: number; exit: string }[] = [];
+  for (const pick of picks) {
+    const r = await forkOne(venue, pick, speed);
+    const backtest = simulate(pick, PLAYBOOK.exit, { ...DEFAULT_SIM, horizonSec: 600 }).pnl;
+    const row = db.prepare('SELECT pnl_sol FROM our_launches WHERE mint = ?').get(r.status === 'launched' ? r.fill.mint : '') as { pnl_sol: number } | undefined;
+    rows.push({
+      symbol: pick.symbol ?? '?',
+      status: r.status,
+      fork: row?.pnl_sol ?? null,
+      backtest,
+      exit: r.status === 'launched' ? `${r.exit?.reason} at ${r.exit?.ageSec.toFixed(1)} s` : r.status === 'blocked' ? r.stage : r.stage,
+    });
+  }
+  if (picks.length > 1 || batch > 0) {
+    console.log('\n== Fork batch: each recorded launch replayed through the live launcher, against the backtest ==');
+    for (const x of rows) {
+      console.log(`  ${x.symbol.slice(0, 12).padEnd(12)} ${x.status.padEnd(9)} fork ${x.fork === null ? '   -  ' : `${x.fork >= 0 ? '+' : ''}${x.fork.toFixed(3)}`}  backtest ${x.backtest >= 0 ? '+' : ''}${x.backtest.toFixed(3)}  ${x.exit}`);
+    }
+    const done = rows.filter((x) => x.fork !== null);
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+    console.log(`  ${done.length} launched: fork mean ${mean(done.map((x) => x.fork!)).toFixed(3)}, backtest mean ${mean(done.map((x) => x.backtest)).toFixed(3)} SOL a launch`);
+  }
+}
+
+/** One recorded launch's traders replayed against a launch of ours on the fork, through the full launch sequence. */
+async function forkOne(venue: ForkVenue, pick: BacktestCoin, speed: number) {
+  console.log(`\nReplaying the traders of $${pick.symbol} (${pick.mint}) against our coin on the fork, ${speed}x speed.`);
   // A fresh post, so the board's first-on-post and farmed-account gates see a post nobody has launched on.
   const postId = String(BigInt(Date.now() - 1288834974657) << 22n);
   const post: PostInfo = { url: `https://x.com/forkrun/status/${postId}`, handle: 'forkrun', postId, postedAt: now() - 5, authorName: 'fork run', text: 'fork run' };
@@ -124,8 +156,13 @@ async function forkRun(): Promise<void> {
     sold = true;
     return r;
   };
-  const r = await runLaunch(deps, post, draft, 'fork run');
-  console.log(`\nResult: ${JSON.stringify(r, (_, v) => (typeof v === 'bigint' ? v.toString() : v), 1)}`);
+  try {
+    const r = await runLaunch(deps, post, draft, 'fork run');
+    if (r.status !== 'launched') console.log(`Result: ${r.status} at ${r.stage}: ${r.detail.split('\n').filter((l) => l.startsWith('FAIL')).join('; ')}`);
+    return r;
+  } finally {
+    venue.sellAll = sellAll;
+  }
 }
 
 /** Trades on a coin buffered from just before its launch was sent until the exit takes over. */
