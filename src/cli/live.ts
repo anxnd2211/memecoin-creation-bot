@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { config } from '../config.ts';
 import { candidateUrls, parseMeta } from '../market/metadata.ts';
 import { log } from '../log.ts';
-import { PLAYBOOK } from '../playbook.ts';
+import { PLAYBOOK, type Playbook } from '../playbook.ts';
 import { loadBacktestCoins } from '../sim/backtest.ts';
 import { Store } from '../store/db.ts';
 import { autoDraft } from '../live/autodraft.ts';
@@ -28,7 +28,7 @@ const opt = (name: string): string | undefined => {
 };
 
 if (args.includes('--help')) {
-  console.log(`usage: npm run live -- --mode fork|dry|live [--replay <mint>] [--speed 1]
+  console.log(`usage: npm run live -- --mode fork|dry|live [--smoke] [--replay <mint>] [--speed 1]
 
 Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   fork  one launch end to end on the local copy of pump.fun: a recorded launch's traders (--replay <mint>, or the most
@@ -37,11 +37,20 @@ Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   dry   the real feed, the observer's database and Telegram: launch cards come from /launch or the X watcher, every
         gate runs and you approve on Telegram, but the launch and the sell are simulated against mainnet, never sent.
   live  real launches from the wallet in LAUNCH_KEYPAIR_PATH, each approved by you on Telegram.
+  --smoke  with live: one real launch with a 0.1 SOL dev buy (about 0.012 SOL of cost) to check everything end to end.
+        Use a separate test wallet: a dead launch in the launch wallet's history costs it snipers later.
 Stop launching at any time with /kill on Telegram or by creating the file data/KILL.`);
   process.exit(0);
 }
 
 const mode = (opt('mode') ?? 'fork') as Mode;
+/**
+ * A smoke test: one real launch with a 0.1 SOL dev buy, to prove keys, metadata, Telegram, landing, the live exit,
+ * the sell and the accounting on mainnet for about 0.012 SOL. Run it from a separate test wallet: a dead launch in
+ * the launch wallet's history costs it snipers later. Recorded as 'smoke', apart from real launches.
+ */
+const smoke = args.includes('--smoke');
+const playbook: Playbook = smoke ? { ...PLAYBOOK, devBuySol: 0.10125, devBuyBands: ['<1'] } : PLAYBOOK;
 if (!['fork', 'dry', 'live'].includes(mode)) {
   console.error('--mode must be fork, dry or live');
   process.exit(1);
@@ -128,8 +137,8 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
     venue,
     notifier,
     db,
-    playbook: PLAYBOOK,
-    limits: DEFAULT_LIMITS,
+    playbook,
+    limits: smoke ? { ...DEFAULT_LIMITS, maxLaunchesPerDay: 3 } : DEFAULT_LIMITS,
     now,
     killed,
     feedLag: () => (feed ? feed.lag.estimate(Date.now()) : 0.4),
@@ -219,22 +228,24 @@ async function liveRun(): Promise<void> {
   const feed = new LiveFeed();
   feed.start();
   const deps = baseDeps(venue, tg, feed);
-  // Live launches use ground "pump" addresses, as pump.fun's site does; a dry run leaves the pool alone.
-  if (mode === 'live') deps.nextMint = () => takeVanity();
+  // Live launches use ground "pump" addresses, as pump.fun's site does; dry runs and smoke tests leave the pool alone.
+  if (mode === 'live' && !smoke) deps.nextMint = () => takeVanity();
+  if (smoke) deps.recordAs = 'smoke';
   let busy = false;
   process.on('unhandledRejection', (e) => {
     log.error('unhandled rejection', { err: (e as Error)?.message ?? String(e) });
     void tg.send(`Internal error (the launcher keeps running): ${(e as Error)?.message ?? String(e)}`);
   });
   // A bag left by an earlier run (a crash or restart between a launch and its sell) is sold before anything else.
-  const leftover = await sellLeftoverBags(db, venue, tg, PLAYBOOK);
+  const leftover = await sellLeftoverBags(db, venue, tg, playbook, smoke ? { recordedAs: 'smoke' } : {});
   if (leftover.failed.length) await tg.send(`${leftover.failed.length} leftover bag(s) still held: launching is paused until they are sold.`);
   if (leftover.failed.length) writeFileSync(KILL_FILE, `leftover bags unsold at start: ${leftover.failed.join(', ')}\n`);
   const balance = await venue.balanceLamports().catch(() => null);
   await tg.send(
+    (smoke ? 'SMOKE TEST: one 0.1 SOL launch to check everything end to end; use a separate test wallet.\n' : '') +
     `Launcher started in ${mode} mode, playbook v${PLAYBOOK.version}. Wallet ${venue.dev}: ` +
       `${balance === null ? 'balance unknown' : `${(Number(balance) / 1e9).toFixed(4)} SOL`}. ` +
-      `Dev buy ${PLAYBOOK.devBuySol} SOL; kill switch ${killed() ? 'ON' : 'off'}; ${vanityLeft()} "pump" mint addresses ` +
+      `Dev buy ${playbook.devBuySol} SOL; kill switch ${killed() ? 'ON' : 'off'}; ${vanityLeft()} "pump" mint addresses ` +
       `ground${vanityLeft() === 0 ? ' (run npm run grind: launches will use random addresses)' : ''}.\n\n${USAGE}`,
   );
 
@@ -335,7 +346,7 @@ async function liveRun(): Promise<void> {
       const post = { ...parsePost(c.url), authorName: null, text: c.text };
       const draft = buildDraft(post, { name: d.name, ticker: d.symbol, image: { bytes, mime, filename: `post.${mime.split('/')[1]}` } });
       // A silent first check, so posts that fail the board do not each send a message.
-      const pre = launchBoard({ playbook: PLAYBOOK, limits: DEFAULT_LIMITS, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: await venue.balanceLamports().catch(() => null), killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
+      const pre = launchBoard({ playbook, limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: await venue.balanceLamports().catch(() => null), killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
       // Launches made seconds ago may not have their metadata yet; the launch sequence waits for it, so only a post
       // already taken, or another gate, drops the candidate here.
       const blocking = pre.gates.filter((g) => !g.pass && !(g.name === 'first on the post' && g.detail.startsWith('0 launches')));

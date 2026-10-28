@@ -20,9 +20,14 @@ you can afford to lose entirely.
    - `npm run live -- --mode fork`: a full launch on the local pump.fun copy
    - `npm run live -- --mode dry`: real feed and Telegram, nothing sent; try `/launch <post url>` with a photo and
      approve the card
-4. **Go live:** `npm run live -- --mode live`. Launch one coin, watch it sell, check the wallet, then continue.
-   `/kill` stops everything.
-5. **After the batch:** `npm run postmortem -- --mode live`.
+4. **Smoke test:** point `LAUNCH_KEYPAIR_PATH` at a separate test wallet holding about 0.3 SOL, and run
+   `npm run live -- --mode live --smoke`. Send one fresh post with `/launch`. One real launch goes out with a 0.1 SOL
+   dev buy (about 0.012 SOL of cost) and is sold. That proves the keys, Pinata, Telegram, landing, the live exit, the
+   sell and the accounting on mainnet. Use a separate wallet because snipers hold a dead launch in a wallet's history
+   against it.
+5. **Go live:** point `LAUNCH_KEYPAIR_PATH` back at the launch wallet and run `npm run live -- --mode live`. Launch
+   one coin, watch it sell, check the wallet, then continue. `/kill` stops everything.
+6. **After the batch:** `npm run postmortem -- --mode live`.
 
 ## What the bot does on each launch (playbook v3)
 

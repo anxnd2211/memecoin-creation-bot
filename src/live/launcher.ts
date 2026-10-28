@@ -62,6 +62,8 @@ export interface LaunchDeps {
   resolvePending?: (launches: { mint: string; uri: string | null }[], postId: string) => Promise<{ linked: number; unknown: number }>;
   /** Throws if the exit engine cannot run this policy, checked before any SOL moves. */
   validateExit?: (policy: ExitPolicy) => void;
+  /** The mode written to our_launches (default the venue's); smoke tests record as 'smoke', apart from real launches. */
+  recordAs?: 'smoke';
   /** A mint keypair's secret key ending in "pump" (src/live/vanity.ts), or null for a random address. */
   nextMint?: () => Uint8Array | null;
   /** Seconds to wait for the owner's answer. */
@@ -257,7 +259,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   const mint = mintKey.publicKey.toBase58();
   recordPlan(d.db, {
     mint,
-    mode: d.venue.mode,
+    mode: d.recordAs ?? d.venue.mode,
     createdTs: d.now(),
     playbook: p,
     post,

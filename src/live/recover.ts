@@ -13,12 +13,12 @@ export async function sellLeftoverBags(
   venue: Venue,
   notifier: Notifier,
   playbook: Playbook,
-  opts: { sinceSec?: number; now?: number } = {},
+  opts: { sinceSec?: number; now?: number; recordedAs?: string } = {},
 ): Promise<{ checked: number; sold: string[]; failed: string[] }> {
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   const rows = db
     .prepare(`SELECT mint FROM our_launches WHERE mode = ? AND created_ts >= ? ORDER BY created_ts`)
-    .all(venue.mode, now - (opts.sinceSec ?? 7 * 86400)) as { mint: string }[];
+    .all(opts.recordedAs ?? venue.mode, now - (opts.sinceSec ?? 7 * 86400)) as { mint: string }[];
   const out = { checked: 0, sold: [] as string[], failed: [] as string[] };
   for (const { mint } of rows) {
     out.checked++;

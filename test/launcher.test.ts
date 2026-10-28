@@ -213,3 +213,14 @@ test('a launch reported certainly not landed is still sold if its bag turns up',
   assert.equal(r.status === 'launched' && r.exit?.reason, 'recovery');
   assert.ok(paused.some((p) => p.includes('bag is there')));
 });
+
+test('smoke-test launches are recorded apart and never count toward the real wallet limits', async () => {
+  const s = setup();
+  s.deps.recordAs = 'smoke';
+  await runLaunch(s.deps, post, draft, 'x');
+  const row = s.db.prepare('SELECT mode FROM our_launches').get() as { mode: string };
+  assert.equal(row.mode, 'smoke');
+  const { boardState } = await import('../src/live/board.ts');
+  const st = boardState(s.db, post, 'OTHER', NOW, { balanceLamports: 1n, killed: false });
+  assert.deepEqual(st.ours, { lastLaunchTs: null, launchesToday: 0, pnlTodaySol: 0, deadInARow: 0 });
+});

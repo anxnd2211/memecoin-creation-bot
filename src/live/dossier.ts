@@ -15,7 +15,8 @@ export const DREW_BUYERS = 10;
 
 export interface LaunchPlan {
   mint: string;
-  mode: Mode;
+  /** The venue's mode, or a label such as 'smoke' that keeps test launches apart from real ones. */
+  mode: Mode | 'smoke';
   createdTs: number;
   playbook: Playbook;
   post: PostInfo;
