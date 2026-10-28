@@ -147,11 +147,23 @@ of pump.fun runs on LiteSVM with the real program binaries (`npm run paper-fork`
 launch replays on it to the lamport, and our curve math matches the program to within a few lamports. A launch is
 what pump.fun's site sends today: `create_v2` (a Token-2022 coin, `is_mayhem_mode` false) and `buy_v2` in one
 transaction through an address lookup table. It costs about 0.009 SOL of rent on a wallet's first launch and 0.007
-after that. The backtest replays
-recorded launches with our position in place of the dev's under about 1,650 selling plans, models the dump other
-wallets make when a dev sells, chooses plans on time blocks they are then not scored on, and reports results against
-the recorded devs with paired noise intervals. Not built yet: the transactions, the launch board, the coin designer
-and paper mode.
+after that. The backtest replays recorded launches with our position in place of the dev's under 1,800 selling
+plans, models the dump other wallets make when a dev sells, chooses plans on time blocks they are then not scored
+on, and reports results against the recorded devs with paired noise intervals.
+
+The live launcher is built (`npm run live`, `src/live/`, [LIVE-RUNBOOK.md](LIVE-RUNBOOK.md)).
+
+- **Launch board:** 17 fail-closed gates.
+- **Launch sequence:** board, metadata pinned in parallel, preflight, Telegram approval, recheck, launch from a
+  ground "pump" address, live exit, sell rounds until the bag is gone, and a record of each launch.
+- **Live exit:** an exit engine that matches the backtest's decisions.
+- **Transactions:** built as pump.fun's site builds them, simulated before every send.
+- **Recovery:** a bag left by a crash or an uncertain launch is sold.
+- **Owner side:** Telegram commands, a compliance-checked coin designer, an X watcher, and `npm run doctor` for the
+  setup.
+- **Shadow mode** (`npm run shadow`) runs the exit live on other devs' launches.
+- **Results so far:** fork runs replaying real launches made +5.12 and +6.85 SOL. On 17 live shadow runs the exit
+  made +7.30 SOL a launch on average, against +5.37 for what those devs did.
 
 - Build create, buy and sell transactions with the official `@pump-fun/pump-sdk` (done on the fork); simulate every
   one on the fork and against mainnet before sending.
