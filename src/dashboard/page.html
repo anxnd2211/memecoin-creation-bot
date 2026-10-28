@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Desk</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #121722; --panel2: #0e1320; --line: #1f2736;
+    --text: #e6edf3; --dim: #8b949e; --green: #3fb950; --red: #f85149; --amber: #d29922; --blue: #58a6ff;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 14px 16px 40px; max-width: 1180px; margin: 0 auto;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; }
+  header h1 { font-size: 19px; letter-spacing: .4px; margin-right: 4px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 999px; padding: 3px 11px; font-size: 12.5px; color: var(--dim); white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; flex: none; }
+  .dot.g { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.a { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+  .dot.r { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  #banner { border: 1px solid var(--line); border-radius: 10px; padding: 11px 15px; margin-bottom: 14px; font-size: 14.5px; }
+  #banner.off { background: var(--panel2); color: var(--dim); }
+  #banner.run { background: #10231a; border-color: #1f4430; color: #7ee2a8; }
+  #banner.fly { background: #2a2113; border-color: #5c4716; color: #f0c674; animation: pulse 1.6s ease-in-out infinite; }
+  #banner.kill { background: #2d1416; border-color: #6e2227; color: #ff9b9b; }
+  @keyframes pulse { 50% { opacity: .75; } }
+  #banner code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 5px; font-size: 13px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; }
+  .stat .k { font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--dim); margin-bottom: 3px; }
+  .stat .v { font-size: 22px; font-weight: 650; }
+  .stat .s { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  .good { color: var(--green); } .bad { color: var(--red); } .warn { color: var(--amber); }
+
+  .panels { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; }
+  @media (max-width: 920px) { .panels { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 13px 15px; min-width: 0; }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--dim); margin-bottom: 9px; }
+
+  canvas { width: 100%; height: 64px; display: block; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; font-size: 11.5px; text-transform: uppercase;
+       letter-spacing: .5px; padding: 4px 8px 6px 0; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  .mode { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+  .mode.live { color: var(--green); border-color: #2f5a3c; }
+  .mode.smoke { color: var(--blue); border-color: #2c4a6e; }
+  .holding { color: var(--amber); animation: pulse 1.6s infinite; }
+  @media (max-width: 620px) { .xs-hide { display: none; } }
+
+  .row { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; min-width: 0; }
+  .row:last-child { border-bottom: 0; }
+  .row .t { color: var(--dim); font-size: 12px; flex: none; width: 46px; }
+  .row .sym { font-weight: 600; flex: none; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .rest { color: var(--dim); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: 10.5px; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; color: var(--dim); flex: none; }
+  .tag.ok { color: var(--green); border-color: #2f5a3c; }
+  .pulseline { color: var(--dim); font-size: 13px; margin-bottom: 8px; }
+  .pulseline b { color: var(--text); }
+
+  footer { margin-top: 18px; color: var(--dim); font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  .empty { color: var(--dim); font-size: 13.5px; padding: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Launch Desk</h1>
+  <span class="chip"><span class="dot" id="d-conn"></span><span id="t-conn">connecting</span></span>
+  <span class="chip"><span class="dot" id="d-obs"></span>observer</span>
+  <span class="chip"><span class="dot" id="d-lau"></span><span id="t-lau">launcher</span></span>
+  <span class="chip"><span class="dot" id="d-x"></span><span id="t-x">X watcher</span></span>
+  <span class="chip"><span class="dot" id="d-kill"></span>kill switch</span>
+  <span class="chip" id="t-pool">mints: –</span>
+</header>
+
+<div id="banner" class="off">connecting to the bot…</div>
+
+<div class="stats">
+  <div class="stat"><div class="k">launch wallet</div><div class="v num" id="s-bal">–</div><div class="s" id="s-bal2"></div></div>
+  <div class="stat"><div class="k">today's p&l</div><div class="v num" id="s-pnl">–</div><div class="s" id="s-pnl2"></div></div>
+  <div class="stat"><div class="k">launches today</div><div class="v num" id="s-n">–</div><div class="s" id="s-n2"></div></div>
+  <div class="stat"><div class="k">dead streak</div><div class="v num" id="s-dead">–</div><div class="s" id="s-dead2"></div></div>
+  <div class="stat"><div class="k">cooldown</div><div class="v num" id="s-cool">–</div><div class="s" id="s-cool2"></div></div>
+  <div class="stat"><div class="k">feed lag</div><div class="v num" id="s-lag">–</div><div class="s">observer → chain</div></div>
+</div>
+
+<div class="panels">
+  <div class="panel">
+    <h2>Our launches</h2>
+    <canvas id="spark" height="64"></canvas>
+    <div id="launches"></div>
+  </div>
+  <div class="panel">
+    <h2>Market pulse</h2>
+    <div class="pulseline" id="pulse">–</div>
+    <div id="feed"></div>
+    <h2 style="margin-top:14px">Smart-money signals</h2>
+    <div id="signals"></div>
+  </div>
+</div>
+
+<footer id="links"></footer>
+
+<script>
+'use strict';
+let snap = null, gotAt = 0;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sol = (v, dp = 2) => v === null || v === undefined ? '–' : (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(dp);
+const cls = (v) => v > 0 ? 'good' : v < 0 ? 'bad' : '';
+
+// Server unix seconds "now", carried forward by the client clock between pushes.
+const now = () => snap ? snap.now + (Date.now() - gotAt) / 1000 : Date.now() / 1000;
+const age = (ts) => {
+  const d = Math.max(0, now() - ts);
+  return d < 90 ? Math.round(d) + ' s' : d < 5400 ? Math.round(d / 60) + ' m' : d < 172800 ? (d / 3600).toFixed(1) + ' h' : Math.round(d / 86400) + ' d';
+};
+
+function dot(id, state) { $(id).className = 'dot' + (state ? ' ' + state : ''); }
+
+function banner() {
+  const b = $('banner');
+  if (!snap) return;
+  const fly = snap.launches.find((l) => l.pnlSol === null && l.mode !== 'paper' && now() - l.createdTs < 900);
+  if (snap.launcher.killed) {
+    b.className = 'kill';
+    b.innerHTML = '&#9632; KILL SWITCH ON — nothing launches. A held bag is still sold. Send /resume on Telegram to turn it off.';
+  } else if (fly) {
+    b.className = 'fly';
+    b.innerHTML = `&#9650; IN FLIGHT: $${esc(fly.symbol ?? '?')} — launched <span class="num">${age(fly.createdTs)}</span> ago, the exit manager is watching its trades. ` +
+      `<a href="https://pump.fun/coin/${esc(fly.mint)}" target="_blank" rel="noopener">live chart ↗</a>`;
+  } else if (snap.launcher.running) {
+    b.className = 'run';
+    b.innerHTML = `&#9679; Launcher running (pid ${snap.launcher.pid}) — hunting for a post worth launching on. A candidate becomes a Telegram card; silence is normal.`;
+  } else {
+    b.className = 'off';
+    b.innerHTML = '&#9675; Launcher off — the observer keeps recording the market. Start a session with <code>npm run live -- --mode live --follow --dev-buy auto</code>';
+  }
+}
+
+function stats() {
+  const w = snap.wallets[0];
+  $('s-bal').textContent = w && w.balanceSol !== null ? w.balanceSol.toFixed(3) + ' SOL' : '–';
+  $('s-bal2').textContent = snap.wallets.slice(1).map((x) => `${x.label}: ${x.balanceSol === null ? '–' : x.balanceSol.toFixed(3)}`).join(' · ');
+
+  const t = snap.today;
+  if (t) {
+    $('s-pnl').textContent = sol(t.pnlSol) + ' SOL';
+    $('s-pnl').className = 'v num ' + cls(t.pnlSol);
+    $('s-pnl2').textContent = `stop at −${snap.limits.maxDailyLossSol} SOL`;
+    $('s-n').textContent = `${t.launches} / ${snap.limits.maxLaunchesPerDay}`;
+    $('s-dead').textContent = `${t.deadInARow} / ${snap.limits.pauseAfterDeadInARow}`;
+    $('s-dead').className = 'v num ' + (t.deadInARow >= snap.limits.pauseAfterDeadInARow ? 'bad' : t.deadInARow > 1 ? 'warn' : '');
+    $('s-dead2').textContent = t.deadInARow >= snap.limits.pauseAfterDeadInARow ? 'paused for review' : 'pause threshold';
+    $('s-n2').textContent = 'live mode, resets at 00:00 UTC';
+    if (t.lastLaunchTs) {
+      const left = snap.minGapSec - (now() - t.lastLaunchTs);
+      $('s-cool').textContent = left > 0 ? `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}` : 'ready';
+      $('s-cool').className = 'v num ' + (left > 0 ? 'warn' : 'good');
+      $('s-cool2').textContent = left > 0 ? 'until the next launch' : `last launch ${age(t.lastLaunchTs)} ago`;
+    } else {
+      $('s-cool').textContent = 'ready';
+      $('s-cool').className = 'v num good';
+      $('s-cool2').textContent = 'no launch yet';
+    }
+  }
+
+  const lag = snap.observer.lastTradeTs === null ? null : Math.max(0, now() - snap.observer.lastTradeTs);
+  $('s-lag').textContent = lag === null ? '–' : lag.toFixed(1) + ' s';
+  $('s-lag').className = 'v num ' + (lag === null ? '' : lag < 5 ? 'good' : lag < 15 ? 'warn' : 'bad');
+}
+
+function chips() {
+  const lag = snap.observer.lastTradeTs === null ? Infinity : now() - snap.observer.lastTradeTs;
+  dot('d-obs', lag < 10 ? 'g' : lag < 60 ? 'a' : 'r');
+  dot('d-lau', snap.launcher.running ? 'g' : '');
+  $('t-lau').textContent = snap.launcher.running ? 'launcher on' : 'launcher off';
+  const xr = snap.launcher.watcher === 'ready';
+  dot('d-x', xr ? 'g' : 'a');
+  $('t-x').textContent = xr ? 'X watcher ready' : 'X: ' + snap.launcher.watcher;
+  dot('d-kill', snap.launcher.killed ? 'r' : '');
+  $('t-pool').textContent = 'mints: ' + snap.launcher.mintPool;
+}
+
+function spark() {
+  const c = $('spark'), ctx = c.getContext('2d');
+  const W = c.width = c.clientWidth * devicePixelRatio, H = c.height = 64 * devicePixelRatio;
+  ctx.clearRect(0, 0, W, H);
+  const done = snap.launches.filter((l) => l.mode === 'live' && l.pnlSol !== null).reverse();
+  if (done.length < 2) { c.style.display = done.length ? 'block' : 'none'; if (!done.length) return; }
+  c.style.display = 'block';
+  let acc = 0;
+  const pts = [0, ...done.map((l) => (acc += l.pnlSol))];
+  const min = Math.min(0, ...pts), max = Math.max(0.01, ...pts);
+  const x = (i) => 4 + (i / (pts.length - 1)) * (W - 8);
+  const y = (v) => H - 4 - ((v - min) / (max - min)) * (H - 8);
+  ctx.strokeStyle = '#2a3347'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, y(0)); ctx.lineTo(W, y(0)); ctx.stroke();
+  ctx.strokeStyle = acc >= 0 ? '#3fb950' : '#f85149'; ctx.lineWidth = 2 * devicePixelRatio;
+  ctx.beginPath();
+  pts.forEach((v, i) => (i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))));
+  ctx.stroke();
+}
+
+function launches() {
+  const rows = snap.launches;
+  if (!rows.length) {
+    $('launches').innerHTML = '<div class="empty">No launches yet. Every coin this bot creates will appear here the second it is sent, and its result the second it is sold.</div>';
+    return;
+  }
+  const h = ['<table><tr><th>when</th><th>coin</th><th class="xs-hide">mode</th><th>buy</th><th>p&amp;l</th><th class="xs-hide">buyers</th><th class="xs-hide">links</th></tr>'];
+  for (const l of rows.slice(0, 25)) {
+    const onChain = l.mode === 'live' || l.mode === 'smoke'; // fork and paper mints never existed on mainnet
+    const pnl = l.pnlSol === null
+      ? (now() - l.createdTs < 900 ? '<span class="holding">holding…</span>' : '<span class="warn">unknown</span>')
+      : `<span class="${cls(l.pnlSol)} num">${sol(l.pnlSol)}</span>`;
+    const links = [
+      onChain ? `<a href="https://pump.fun/coin/${esc(l.mint)}" target="_blank" rel="noopener">chart</a>` : '',
+      onChain && l.createSig ? `<a href="https://solscan.io/tx/${esc(l.createSig)}" target="_blank" rel="noopener">tx</a>` : '',
+      l.postUrl ? `<a href="${esc(l.postUrl)}" target="_blank" rel="noopener">post</a>` : '',
+    ].filter(Boolean).join(' · ');
+    const coin = `$${esc(l.symbol ?? l.mint.slice(0, 6))}`;
+    h.push(`<tr><td class="num" data-ts="${l.createdTs}">${age(l.createdTs)}</td>` +
+      `<td>${onChain ? `<a href="https://pump.fun/coin/${esc(l.mint)}" target="_blank" rel="noopener">${coin}</a>` : coin}</td>` +
+      `<td class="xs-hide"><span class="mode ${esc(l.mode)}">${esc(l.mode)}</span></td>` +
+      `<td class="num">${l.devBuySol.toFixed(2)}</td><td>${pnl}</td>` +
+      `<td class="num xs-hide">${l.uniqueBuyers ?? '–'}</td><td class="xs-hide">${links}</td></tr>`);
+  }
+  h.push('</table>');
+  $('launches').innerHTML = h.join('');
+}
+
+function feed() {
+  const o = snap.observer;
+  $('pulse').innerHTML = `<b class="num">${o.launches5m ?? '–'}</b> launches / 5 min · <b class="num">${o.launches1h ?? '–'}</b> / hour · ` +
+    `<b class="num">${o.trades1m ?? '–'}</b> trades / min · <b class="num">${(o.coinsTotal ?? 0).toLocaleString()}</b> coins recorded`;
+  $('feed').innerHTML = snap.feed.map((f) => {
+    const tags = [
+      f.followable ? '<span class="tag ok">followable</span>' : '',
+      f.post ? `<a class="tag" href="${esc(f.post)}" target="_blank" rel="noopener">post</a>` : '',
+      f.isMayhem ? '<span class="tag">mayhem</span>' : '',
+    ].filter(Boolean).join('');
+    return `<div class="row"><span class="t num" data-ts="${f.createdTs}">${age(f.createdTs)}</span>` +
+      `<span class="sym"><a href="https://pump.fun/coin/${esc(f.mint)}" target="_blank" rel="noopener">$${esc(f.symbol ?? '?')}</a></span>` +
+      `<span class="rest num">${f.devBuySol >= 0.005 ? f.devBuySol.toFixed(2) + ' SOL dev buy' : 'no dev buy'}</span>${tags}</div>`;
+  }).join('') || '<div class="empty">waiting for launches…</div>';
+
+  const icon = { smart_buy: '&#128184;', traction: '&#128293;', graduated: '&#127891;', dev_sold: '&#9888;', dev_sold_all: '&#9888;' };
+  $('signals').innerHTML = snap.signals.map((s) => {
+    const name = s.symbol ?? (s.mint ? s.mint.slice(0, 4) + '…' : s.kind);
+    return `<div class="row"><span class="t num" data-ts="${s.ts}">${age(s.ts)}</span>` +
+      `<span class="sym">${icon[s.kind] ?? '&#8226;'} ${s.mint ? `<a href="https://pump.fun/coin/${esc(s.mint)}" target="_blank" rel="noopener">$${esc(name)}</a>` : esc(name)}</span>` +
+      `<span class="rest">${esc(s.kind.replace(/_/g, ' '))} ${esc(s.headline)}</span></div>`;
+  }).join('') || '<div class="empty">no signals yet…</div>';
+}
+
+function links() {
+  const w = snap.wallets[0];
+  if (!w) { $('links').innerHTML = ''; return; }
+  $('links').innerHTML =
+    `<a href="https://solscan.io/account/${esc(w.address)}" target="_blank" rel="noopener">wallet on Solscan ↗</a>` +
+    `<a href="https://pump.fun/profile/${esc(w.address)}" target="_blank" rel="noopener">pump.fun profile ↗</a>` +
+    `<a href="https://dashboard.helius.dev" target="_blank" rel="noopener">Helius usage ↗</a>` +
+    `<a href="https://console.x.com" target="_blank" rel="noopener">X credits ↗</a>` +
+    `<span>read-only: this page cannot launch, sell or approve anything</span>`;
+}
+
+function render() {
+  if (!snap) return;
+  banner(); stats(); chips(); spark(); launches(); feed(); links();
+  const t = snap.today;
+  document.title = `Launch Desk${snap.wallets[0]?.balanceSol !== null && snap.wallets[0] ? ' · ' + snap.wallets[0].balanceSol.toFixed(2) + ' SOL' : ''}${t ? ' · ' + sol(t.pnlSol) : ''}`;
+}
+
+// Live updates over SSE; EventSource reconnects on its own, and the dot shows which state we are in.
+const es = new EventSource('/events');
+es.onmessage = (e) => { snap = JSON.parse(e.data); gotAt = Date.now(); dot('d-conn', 'g'); $('t-conn').textContent = 'live'; render(); };
+es.onerror = () => { dot('d-conn', 'r'); $('t-conn').textContent = 'reconnecting'; };
+
+// Between pushes, relative times and the timers keep ticking on the client clock.
+setInterval(() => {
+  if (!snap) return;
+  document.querySelectorAll('[data-ts]').forEach((el) => { el.textContent = age(Number(el.dataset.ts)); });
+  stats(); banner(); chips();
+  if (Date.now() - gotAt > 15000) { dot('d-conn', 'a'); $('t-conn').textContent = 'stale'; }
+}, 1000);
+</script>
+</body>
+</html>

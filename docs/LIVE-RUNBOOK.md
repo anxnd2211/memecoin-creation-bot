@@ -63,6 +63,17 @@ exists, and second launches do nearly as well as first ones. Start the bot with:
 npm run live -- --mode live --follow --dev-buy auto
 ```
 
+## Watching it live: the dashboard
+
+`npm run dashboard` serves a read-only page at http://localhost:8788 that shows the whole session at a glance:
+wallet balances, today's P&L against the daily limits, the dead streak and the launch cooldown, every launch with
+its result and links (pump.fun chart, the Solscan transaction, the source post), the market's launch rate, and the
+observer's smart-money signals. An amber banner marks a bag in flight; red marks the kill switch. It opens the
+database read-only and holds no keys: the page cannot launch, sell or approve anything, so it is safe to leave open
+during a session. To watch from a phone on the same Wi-Fi, run `npm run dashboard -- --host 0.0.0.0` and open
+`http://<the Mac's IP>:8788` — anyone on that network can then see it, so keep that to networks you trust.
+Extra wallets appear via `DASHBOARD_WALLETS=label:pubkey,...` in `.env` (public keys only).
+
 ## What the bot does on each launch (playbook v3)
 
 1. **A candidate post arrives.** The launch-follower spots it from the first launch on the post, the X watcher
