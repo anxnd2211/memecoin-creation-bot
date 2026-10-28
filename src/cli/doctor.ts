@@ -128,6 +128,30 @@ else {
   say(stale !== null && stale <= DEFAULT_LIMITS.maxObserverStaleSec ? 'OK' : 'FAIL', 'observer', stale === null ? 'nothing recorded in the last hour: start npm run observe' : `last trade recorded ${stale} s ago`);
 }
 
+// IPFS gateways: the upload check and the first-on-post check need at least one that answers from this machine.
+if (existsSync(config.dbPath)) {
+  const db = new DatabaseSync(config.dbPath, { readOnly: true });
+  const row = db.prepare(`SELECT uri FROM coins WHERE uri LIKE '%/ipfs/%' AND meta_status = 'done' ORDER BY created_ts DESC LIMIT 1`).get() as
+    | { uri: string }
+    | undefined;
+  if (!row) say('WARN', 'IPFS', 'no recent IPFS metadata in the database to test the gateways with');
+  else {
+    const cid = row.uri.slice(row.uri.indexOf('/ipfs/') + 6);
+    const results = await Promise.all(
+      config.ipfsGateways.map(async (g) => {
+        try {
+          const res = await fetch(g + cid, { signal: AbortSignal.timeout(6_000) });
+          return `${new URL(g).host} ${res.ok ? 'ok' : res.status}`;
+        } catch {
+          return `${new URL(g).host} timeout`;
+        }
+      }),
+    );
+    const ok = results.filter((r) => r.endsWith(' ok')).length;
+    say(ok ? 'OK' : 'FAIL', 'IPFS', `${ok} of ${results.length} gateways answer: ${results.join(', ')}`);
+  }
+}
+
 // Mint addresses, kill switch, playbook
 const left = vanityLeft();
 say(left >= 10 ? 'OK' : left > 0 ? 'WARN' : 'WARN', 'pump addresses', `${left} ground${left < 10 ? ' (npm run grind -- --count 20)' : ''}`);
