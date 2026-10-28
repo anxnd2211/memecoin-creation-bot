@@ -37,7 +37,8 @@ export interface LaunchDeps {
   makeExit: (policy: ExitPolicy, landing: LaunchFill) => {
     onTrade(t: LiveTrade): ExitDecision | null;
     onTick(nowMs: number): ExitDecision | null;
-    kill(): void;
+    /** Sell now; returns the decision already made if there is one. */
+    kill(nowMs: number): ExitDecision;
   };
   /** Seconds to wait for the owner's answer. */
   approvalTimeoutSec?: number;
@@ -178,8 +179,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   const tickMs = d.tickMs ?? 200;
   while (!decision) {
     if (d.killed()) {
-      engine.kill();
-      decision = { reason: 'kill', at: Date.now(), ageSec: (Date.now() - fill.landedAt) / 1000 };
+      decision = engine.kill(Date.now());
       break;
     }
     decision = engine.onTick(Date.now());

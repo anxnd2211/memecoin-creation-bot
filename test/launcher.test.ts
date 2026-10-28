@@ -69,7 +69,7 @@ function setup(o: { approve?: boolean; preflightError?: string; sellFails?: bool
       return () => {};
     },
     // A stand-in exit: sell on the second clock tick.
-    makeExit: () => ({ onTrade: () => null, onTick: (now) => (++calls >= 2 ? { reason: 'stall', at: now, ageSec: 12 } : null), kill: () => {} }),
+    makeExit: () => ({ onTrade: () => null, onTick: (now) => (++calls >= 2 ? { reason: 'stall', at: now, ageSec: 12 } : null), kill: (now) => ({ reason: 'kill', at: now, ageSec: 0 }) }),
     approvalTimeoutSec: 1, tickMs: 1, settleSec: 0,
   };
   if (o.postLaunch) {
@@ -120,7 +120,7 @@ test('the bag is sold before the curve completes', async () => {
     for (let i = 0; i < 15; i++) onTrade({ slot: 2 + i, chainTs: NOW, receivedAt: Date.now() + 3000, wallet: `W${i}`, isBuy: true, sol: 5, tokens: 1, dev: false });
     return () => {};
   };
-  deps.makeExit = () => ({ onTrade: () => null, onTick: () => null, kill: () => {} });
+  deps.makeExit = () => ({ onTrade: () => null, onTick: () => null, kill: (now) => ({ reason: 'kill', at: now, ageSec: 0 }) });
   const r = await runLaunch(deps, post, draft, 'x');
   assert.equal(r.status === 'launched' && r.exit?.reason, 'near graduation');
   const row = db.prepare('SELECT notes FROM our_launches').get() as { notes: string };
