@@ -86,8 +86,11 @@ const from = batch[0]!.ts;
 const inBatch = new Set(batch.map((b) => b.mint));
 // With fewer than 5 such launches (a short recording, strict rules) every matching launch outside the batch is used.
 const prior = matching.filter((c) => c.createdTs < from && c.createdTs >= from - 86400 && !inBatch.has(c.mint));
-const before = prior.length >= 5 ? prior : matching.filter((c) => !inBatch.has(c.mint));
-const expectationFrom = prior.length >= 5 ? 'in the 24 h before' : 'outside the batch (too few in the 24 h before)';
+const outside = matching.filter((c) => !inBatch.has(c.mint));
+// With none at all, the batch's own launches set the expectation: picking and coins gaps are then zero by construction.
+const before = prior.length >= 5 ? prior : outside.length ? outside : batch.flatMap((b) => (b.coin ? [b.coin] : []));
+const expectationFrom =
+  prior.length >= 5 ? 'in the 24 h before' : outside.length ? 'outside the batch (too few in the 24 h before)' : 'in the batch itself (no others match the rules)';
 const beforePnl = runPolicy(before, PLAYBOOK.exit, o);
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const exp: Expectation = {
