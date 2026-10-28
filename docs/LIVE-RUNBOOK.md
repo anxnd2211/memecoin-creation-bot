@@ -8,25 +8,28 @@ you can afford to lose entirely.
 
 1. **Accounts and keys** (about 30 minutes; the table under "Before the session" has the steps). Put each in `.env`,
    never in chat:
-   - a Helius key (Developer plan)
+   - a Helius key (Developer plan), and Helius Sender for landing launches and sells (`SENDER_URL`)
    - a Telegram bot token and your chat id
-   - a Pinata JWT
-   - a new launch wallet, funded with about 8 SOL
+   - a Pinata JWT with the pinFileToIPFS and pinJSONToIPFS scopes
+   - a new launch wallet, funded with about 8 SOL, as an absolute path in `LAUNCH_KEYPAIR_PATH`
+   - a separate test wallet with about 0.3 SOL, for the smoke test
    - optionally, an X API bearer token
 2. **Two terminals:**
    - `caffeinate -i npm run observe`, left running for the whole session
-   - `npm run doctor`, until it shows no FAIL
+   - `npm run doctor -- --pin`, until it shows no FAIL (`--pin` uploads a tiny test file to check the whole metadata
+     path)
 3. **Rehearse:**
    - `npm run live -- --mode fork`: a full launch on the local pump.fun copy
    - `npm run live -- --mode dry`: real feed and Telegram, nothing sent; try `/launch <post url>` with a photo and
      approve the card
-4. **Smoke test:** point `LAUNCH_KEYPAIR_PATH` at a separate test wallet holding about 0.3 SOL, and run
-   `npm run live -- --mode live --smoke`. Send one fresh post with `/launch`. One real launch goes out with a 0.1 SOL
+4. **Smoke test:** point `LAUNCH_KEYPAIR_PATH` at the test wallet, clear `LAUNCH_PUBKEY` (or set it to the test
+   wallet), and run `npm run live -- --mode live --smoke`. It refuses a wallet holding over 1 SOL. Send one fresh post with `/launch`. One real launch goes out with a 0.1 SOL
    dev buy (about 0.012 SOL of cost) and is sold. That proves the keys, Pinata, Telegram, landing, the live exit, the
    sell and the accounting on mainnet. Use a separate wallet because snipers hold a dead launch in a wallet's history
    against it.
-5. **Go live:** point `LAUNCH_KEYPAIR_PATH` back at the launch wallet and run `npm run live -- --mode live`. Launch
-   one coin, watch it sell, check the wallet, then continue. `/kill` stops everything.
+5. **Go live:** stop the smoke run (only one launcher runs at a time), point `LAUNCH_KEYPAIR_PATH` back at the launch
+   wallet and run `npm run live -- --mode live`. Launch one coin, watch it sell, check the wallet, then continue.
+   `/kill` stops everything.
 6. **After the batch:** `npm run postmortem -- --mode live`.
 
 ## What the bot does on each launch (playbook v3)
@@ -60,9 +63,10 @@ you can afford to lose entirely.
 | Observer running | `caffeinate -i npm run observe`, left running the whole session | — |
 | Helius key | dashboard.helius.dev, Developer plan, copy the mainnet RPC and WebSocket URLs (see [ACCOUNTS.md](ACCOUNTS.md)); restart the observer | `.env`: `SOLANA_RPC_HTTP`, `SOLANA_RPC_WS` |
 | Telegram bot | In Telegram, message @BotFather, send `/newbot`, copy the token. Send your new bot any message, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser and copy `message.chat.id` | `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
-| Launch wallet | A new wallet used only for launches. With the Solana CLI: `solana-keygen new -o ~/.config/memecoin/launch.json`, then `chmod 600` that file | `.env`: `LAUNCH_KEYPAIR_PATH` |
+| Launch wallet | A new wallet used only for launches. With the Solana CLI: `solana-keygen new -o ~/.config/memecoin/launch.json`, then `chmod 600` that file. Write its full path in `.env` (for example `/Users/you/.config/memecoin/launch.json`; a leading `~` also works) | `.env`: `LAUNCH_KEYPAIR_PATH` |
+| Helius Sender | Sends each launch and sell over staked routes with a tip (0.001 SOL by default; successful devs tip about 0.005). Use `https://sender.helius-rpc.com/fast?api-key=<your Helius key>` | `.env`: `SENDER_URL`, optionally `SENDER_TIP_LAMPORTS` |
 | Fund it | About 8 SOL (5.06 dev buy, reused each launch, plus fees, rent and a reserve) | — |
-| Pinata (metadata hosting) | pinata.cloud, free plan, then API Keys, New Key with the pinning scopes, copy the **JWT**. pump.fun's own upload sits behind a Cloudflare bot check, which the bot does not work around. Metadata is pinned on your account and linked as `https://ipfs.io/ipfs/<cid>`, the way pump.fun's site links it | `.env`: `PINATA_JWT` |
+| Pinata (metadata hosting) | pinata.cloud, free plan, then API Keys, New Key with the legacy pinning scopes pinFileToIPFS and pinJSONToIPFS, copy the **JWT**. pump.fun's own upload sits behind a Cloudflare bot check, which the bot does not work around. Metadata is pinned on your account and linked as `https://ipfs.io/ipfs/<cid>`, the way pump.fun's site links it | `.env`: `PINATA_JWT` |
 | Optional: X API | console.x.com, pay-per-use, bearer token. Enables the X watcher: a new post from one of the 40 watched accounts becomes a ready launch card within seconds. Without it, send posts by hand | `.env`: `X_BEARER_TOKEN` |
 
 Never paste a key, token or seed phrase into chat. Put them only in `.env`, which git ignores.
@@ -72,13 +76,13 @@ Never paste a key, token or seed phrase into chat. Put them only in `.env`, whic
 Each step must pass before the next:
 
 ```bash
-npm run doctor                              # every key, service, balance and the feed's lag checked; no secrets printed
+npm run doctor -- --pin                     # every key, service, balance, the feed's lag and the metadata upload; no secrets printed
 npm test                                    # all tests pass
-npm run grind -- --count 20                 # mint addresses ending in "pump", like the site's (about 2-3 min each)
 npm run live -- --mode fork                 # one launch end to end on the local pump.fun copy, a real launch's traders replayed
 npm run shadow -- --minutes 30              # the exit manager live on other devs' 5 SOL launches
 npm run live -- --mode dry                  # real feed, real Telegram, launches simulated against mainnet, nothing sent
-npm run live -- --mode live                 # real launches, each one approved by you on Telegram
+npm run live -- --mode live --smoke         # one real 0.1 SOL launch from the test wallet
+npm run live -- --mode live                 # real launches from the launch wallet, each one approved by you on Telegram
 npm run postmortem -- --mode live           # after the batch
 ```
 
@@ -93,8 +97,12 @@ npm run postmortem -- --mode live           # after the batch
 - **If the bot stops mid-launch** (a crash, a restart, the Mac sleeping), start it again: it first sells any bag a
   launch left behind, and pauses launching if one cannot be sold.
 - **Creator fees** pile up in the wallet's creator vault; `/claim` moves them to the wallet (simulated first).
-- **If a sell fails three times,** the bot alerts you on Telegram. Sell manually at once, in the pump.fun site or
-  any wallet: an unsold bag is the one way to lose more than the fees.
+- **If a sell fails,** the bot pauses launching, tells you, and keeps selling in rounds with wider limits; after four
+  rounds it asks you to sell by hand. If it does, sell at once on the pump.fun site or in any wallet: an unsold bag
+  is the one way to lose more than the fees. The record then shows the bag as lost until a restart's recovery sells
+  it.
+- **The mint-address pool** holds 20 ground "pump" addresses, enough for two days at 10 launches a day. Grinding more
+  (`npm run grind`) takes about an hour on all cores, so do it outside a session.
 
 ## What to expect
 

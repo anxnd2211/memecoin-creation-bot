@@ -37,5 +37,8 @@ test('bags left by an earlier run are sold on start, and failures are reported',
   assert.deepEqual(r.failed, ['STUCK', 'NEVER']);
   assert.ok(messages.some((m) => m.includes('STUCK') && m.includes('by hand')));
   assert.ok(messages.some((m) => m.includes('NEVER') && m.includes('stays paused')));
-  assert.ok((db.prepare(`SELECT notes FROM our_launches WHERE mint = 'HELD'`).get() as { notes: string }).notes.includes('leftover bag sold'));
+  const held = db.prepare(`SELECT notes, pnl_sol FROM our_launches WHERE mint = 'HELD'`).get() as { notes: string; pnl_sol: number };
+  assert.ok(held.notes.includes('leftover bag sold'));
+  // No result was recorded before the crash: the dev buy and rent count as spent, the sale as received.
+  assert.ok(Math.abs(held.pnl_sol - (4.899995 - 5.0625 - 0.0093)) < 1e-9, String(held.pnl_sol));
 });

@@ -94,7 +94,8 @@ export const PENDING_WAIT_MS = 3_000;
 
 /** Sell rounds before giving up and asking the owner to sell by hand; each round runs the venue's slippage ladder. */
 export const SELL_ROUNDS = [
-  { maxSlippage: 0.1, ladder: [0.2, 0.35], priorityMicroLamports: undefined },
+  // The first sell matters most (it lands into a dump): 1,000,000 micro-lamports on 150k units is 0.00015 SOL.
+  { maxSlippage: 0.1, ladder: [0.2, 0.35], priorityMicroLamports: 1_000_000 },
   { maxSlippage: 0.35, ladder: [0.6], priorityMicroLamports: 1_000_000 },
   { maxSlippage: 0.6, ladder: [0.9], priorityMicroLamports: 5_000_000 },
   { maxSlippage: 0.9, ladder: [], priorityMicroLamports: 20_000_000 },
@@ -116,7 +117,7 @@ async function sellUntilGone(
     const maxSlippage = i === 0 ? d.playbook.sellMaxSlippage : r.maxSlippage;
     try {
       // Later rounds never pay less priority than the configured default.
-      const priority = r.priorityMicroLamports === undefined ? undefined : Math.max(config.priorityMicroLamports, r.priorityMicroLamports);
+      const priority = Math.max(config.priorityMicroLamports, r.priorityMicroLamports);
       const sell = await d.venue.sellAll(mint, { maxSlippage, ladder: [...r.ladder], priorityMicroLamports: priority });
       return { sell, gone: true, rounds: i + 1, error: null };
     } catch (e) {
@@ -136,6 +137,15 @@ async function sellUntilGone(
       `(on pump.fun; if the curve has completed, the coin trades on PumpSwap). Launching stays paused.`,
   );
   return { sell: null, gone: false, rounds: SELL_ROUNDS.length, error };
+}
+
+/** Drops the record of a launch that certainly created no coin, so it uses up no spacing or daily-limit room. */
+function forget(d: LaunchDeps, mint: string): void {
+  try {
+    d.db.prepare('DELETE FROM our_launches WHERE mint = ? AND pnl_sol IS NULL').run(mint);
+  } catch {
+    // A record left behind only makes the gates stricter.
+  }
 }
 
 /** The dev's tokens of `mint`, asked a few times; null when the RPC never answers. */
@@ -282,8 +292,10 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   } catch (e) {
     const err = e as Error;
     // Failures before anything was sent, or a launch that landed and failed, created no coin.
-    if (err instanceof NotSentError || err instanceof PreflightError || err instanceof LaunchFailedError) {
+    // A fork or dry venue never sends anything to mainnet, so its errors leave no real bag either.
+    if (d.venue.mode !== 'live' || err instanceof NotSentError || err instanceof PreflightError || err instanceof LaunchFailedError) {
       d.unwatch?.(mint);
+      forget(d, mint);
       void d.notifier.send(`Launch of $${draft.symbol} failed, no coin was created: ${err.message}`);
       return { status: 'failed', stage: 'launch', detail: err.message };
     }
@@ -299,6 +311,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     const held = first === 0n ? (await sleep(wait), await findBag(d.venue, mint, wait)) : first;
     if (held === 0n) {
       d.unwatch?.(mint);
+      if (certain) forget(d, mint);
       void d.notifier.send(
         certain
           ? `Launch of $${draft.symbol} did not land: ${err.message}`
@@ -378,6 +391,9 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   };
   recordOutcome(d.db, mint, outcome);
   const pnl = launchPnl(outcome);
-  await d.notifier.send(`$${draft.symbol}: ${note}. Result ${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)} SOL; ${laterBuyers.size} later buyers.`);
+  await d.notifier.send(
+    `$${draft.symbol}: ${note}. Result ${pnl >= 0 ? '+' : ''}${pnl.toFixed(4)} SOL${fill.simulated ? ' (simulated: nothing was sent)' : ''}; ` +
+      `${laterBuyers.size} later buyers.`,
+  );
   return { status: 'launched', fill, sell, exit: decision, pnlNote: note };
 }

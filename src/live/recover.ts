@@ -36,10 +36,12 @@ export async function sellLeftoverBags(
     try {
       const fill = await venue.sellAll(mint, { maxSlippage: playbook.sellMaxSlippage, ladder: [0.2, 0.35, 0.6] });
       out.sold.push(mint);
-      db.prepare(`UPDATE our_launches SET notes = COALESCE(notes, '') || ? WHERE mint = ?`).run(
-        `; leftover bag sold on restart for ${(Number(fill.lamportsReceived) / 1e9).toFixed(4)} SOL`,
-        mint,
-      );
+      // The sale is added to the recorded result (a failed sell recorded the bag as lost; a crash recorded nothing, so
+      // the dev buy and the rent count as spent), so the daily-loss gate and the post-mortem see it.
+      const received = Number(fill.lamportsReceived - fill.networkFeeLamports) / 1e9;
+      db.prepare(
+        `UPDATE our_launches SET pnl_sol = COALESCE(pnl_sol, -(dev_buy_sol + 0.0093)) + ?, notes = COALESCE(notes, '') || ? WHERE mint = ?`,
+      ).run(received, `; leftover bag sold on restart for ${received.toFixed(4)} SOL`, mint);
       await notifier.send(`Sold a bag left from an earlier run: ${mint}, ${(Number(fill.lamportsReceived) / 1e9).toFixed(4)} SOL.`);
     } catch (e) {
       out.failed.push(mint);

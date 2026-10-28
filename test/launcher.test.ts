@@ -120,6 +120,8 @@ test('a sell that fails every attempt alerts the owner and is recorded', async (
 
 test('a launch whose outcome is unknown pauses launching, finds the bag and sells it', async () => {
   const s = setup();
+  // Only a live venue can leave a real bag; fork and dry errors count as no coin.
+  (s.venue as { mode: string }).mode = 'live';
   const launch = s.venue.launch.bind(s.venue);
   s.venue.launch = async (prm) => {
     await launch(prm); // it landed...
@@ -203,6 +205,7 @@ test('launches the observer has not read yet are read directly, and one linking 
 
 test('a launch reported certainly not landed is still sold if its bag turns up', async () => {
   const s = setup();
+  (s.venue as { mode: string }).mode = 'live';
   paused.length = 0;
   const launch = s.venue.launch.bind(s.venue);
   s.venue.launch = async (prm) => {
@@ -223,4 +226,16 @@ test('smoke-test launches are recorded apart and never count toward the real wal
   const { boardState } = await import('../src/live/board.ts');
   const st = boardState(s.db, post, 'OTHER', NOW, { balanceLamports: 1n, killed: false });
   assert.deepEqual(st.ours, { lastLaunchTs: null, launchesToday: 0, pnlTodaySol: 0, deadInARow: 0 });
+});
+
+test('an error from a fork or dry venue leaves no record and no pause', async () => {
+  const s = setup();
+  paused.length = 0;
+  s.venue.launch = async () => {
+    throw new Error('RPC getMultipleAccountsInfo failed');
+  };
+  const r = await runLaunch(s.deps, post, draft, 'x');
+  assert.deepEqual([r.status, r.status === 'failed' && r.stage], ['failed', 'launch']);
+  assert.equal(paused.length, 0);
+  assert.equal((s.db.prepare('SELECT COUNT(*) AS n FROM our_launches').get() as { n: number }).n, 0);
 });

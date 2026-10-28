@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -74,7 +75,7 @@ export const config = {
   logLevel: str('LOG_LEVEL', 'info'),
 
   /** The launch wallet's keypair file (Solana CLI JSON); read only by live mode, and never logged. */
-  launchKeypairPath: optional('LAUNCH_KEYPAIR_PATH'),
+  launchKeypairPath: optional('LAUNCH_KEYPAIR_PATH')?.replace(/^~(?=\/|$)/, homedir()) ?? null,
   /** The launch wallet's public key, for dry mode (simulation only, no key needed). Must match the keypair if both are set. */
   launchPubkey: optional('LAUNCH_PUBKEY'),
   /**

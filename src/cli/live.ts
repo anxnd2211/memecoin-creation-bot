@@ -165,6 +165,9 @@ async function forkOne(venue: ForkVenue, pick: BacktestCoin, speed: number) {
   }
 }
 
+/** The X watcher's last status line, for /status. */
+let watcherState = 'off';
+
 /** Trades on a coin buffered from just before its launch was sent until the exit takes over. */
 const early = new Map<string, { trades: LiveTrade[]; off: () => void }>();
 
@@ -257,8 +260,45 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
   };
 }
 
+/**
+ * One launcher process at a time: two would both read the Telegram bot's updates (approvals reaching the wrong one)
+ * and open two X streams. The lock names the running process's pid; a lock whose process is gone is taken over.
+ */
+const LOCK_FILE = 'data/live.lock';
+function takeLock(): void {
+  if (existsSync(LOCK_FILE)) {
+    const pid = Number(readFileSync(LOCK_FILE, 'utf8').trim());
+    let alive = false;
+    try {
+      if (pid > 0) process.kill(pid, 0);
+      alive = pid > 0;
+    } catch {
+      alive = false;
+    }
+    if (alive && pid !== process.pid) throw new Error(`another launcher is running (pid ${pid}); stop it first (Ctrl-C in its terminal)`);
+  }
+  writeFileSync(LOCK_FILE, String(process.pid));
+  process.on('exit', () => {
+    try {
+      if (readFileSync(LOCK_FILE, 'utf8').trim() === String(process.pid)) rmSync(LOCK_FILE, { force: true });
+    } catch {
+      // already gone
+    }
+  });
+}
+
 async function liveRun(): Promise<void> {
+  takeLock();
   const venue: Venue = mode === 'live' ? await MainnetVenue.fromConfig() : await DryVenue.fromConfig();
+  if (smoke) {
+    const balance = await venue.balanceLamports();
+    if (Number(balance) / 1e9 > 1) {
+      throw new Error(
+        `--smoke refuses a wallet holding ${(Number(balance) / 1e9).toFixed(3)} SOL: run the smoke test from a separate test wallet ` +
+          `with about 0.3 SOL (set LAUNCH_KEYPAIR_PATH to it and clear LAUNCH_PUBKEY), so a dead test launch stays out of the launch wallet's history`,
+      );
+    }
+  }
   const tg = new TelegramNotifier();
   const feed = new LiveFeed();
   feed.start();
@@ -317,8 +357,8 @@ async function liveRun(): Promise<void> {
       await tg.send('Kill switch off: launches allowed again.');
     } else if (c.kind === 'status') {
       const lag = feed.lag.estimate(Date.now());
-      const ours = db.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(pnl_sol), 0) AS pnl FROM our_launches WHERE mode = ? AND created_ts >= ?`).get(mode, now() - (now() % 86400)) as { n: number; pnl: number };
-      await tg.send(`${mode} mode, ${busy ? 'launch in progress' : 'idle'}; kill switch ${killed() ? 'ON' : 'off'}; feed lag ${lag === null ? 'unknown' : `${lag.toFixed(1)} s`}; today ${ours.n} launches, ${ours.pnl.toFixed(4)} SOL.`);
+      const ours = db.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(pnl_sol), 0) AS pnl FROM our_launches WHERE mode = ? AND created_ts >= ?`).get(smoke ? 'smoke' : mode, now() - (now() % 86400)) as { n: number; pnl: number };
+      await tg.send(`${smoke ? 'smoke test, ' : ''}${mode} mode, ${busy ? 'launch in progress' : 'idle'}; X watcher ${watcherState}; kill switch ${killed() ? 'ON' : 'off'}; feed lag ${lag === null ? 'unknown' : `${lag.toFixed(1)} s`}; today ${ours.n} launches, ${ours.pnl.toFixed(4)} SOL.`);
     } else if (c.kind === 'claim') {
       if (!(venue instanceof MainnetVenue)) {
         await tg.send('Nothing to claim in this mode.');
@@ -355,7 +395,10 @@ async function liveRun(): Promise<void> {
 
   // Posts from watched accounts become launch cards with a drafted name, ticker and the post's image.
   const onCandidate = async (c: XPostCandidate) => {
-    if (busy || killed()) return;
+    if (busy || killed()) {
+      log.info('candidate skipped', { url: c.url, reason: busy ? 'a launch is in progress' : 'kill switch on' });
+      return;
+    }
     const d = autoDraft(c.text);
     if (!d || !c.imageUrl) {
       await tg.send(`New post from @${c.handle}: ${c.url}\nNo automatic draft (${!d ? 'no usable words' : 'no image'}). Send /launch with a photo to launch on it.`);
@@ -363,6 +406,7 @@ async function liveRun(): Promise<void> {
     }
     try {
       const res = await fetch(c.imageUrl, { signal: AbortSignal.timeout(5_000) });
+      if (!res.ok) throw new Error(`the post image answered HTTP ${res.status}`);
       const bytes = new Uint8Array(await res.arrayBuffer());
       const mime = sniffImage(bytes);
       if (!mime) throw new Error('the post image is not a PNG, JPEG, GIF or WEBP');
@@ -373,7 +417,10 @@ async function liveRun(): Promise<void> {
       // Launches made seconds ago may not have their metadata yet; the launch sequence waits for it, so only a post
       // already taken, or another gate, drops the candidate here.
       const blocking = pre.gates.filter((g) => !g.pass && !(g.name === 'first on the post' && g.detail.startsWith('0 launches')));
-      if (blocking.length) return;
+      if (blocking.length) {
+        log.info('candidate skipped', { url: c.url, reason: blocking.map((g) => g.name).join(', ') });
+        return;
+      }
       await launch(post, draft, `${c.text} (auto draft from ${d.basis})`);
     } catch (e) {
       log.warn('candidate skipped', { url: c.url, err: (e as Error).message });
@@ -382,12 +429,17 @@ async function liveRun(): Promise<void> {
 
   const bearer = process.env.X_BEARER_TOKEN;
   let watcher: XWatcher | null = null;
+  watcherState = !bearer ? 'off (no X_BEARER_TOKEN)' : !existsSync('data/watchlist.json') ? 'off (no data/watchlist.json: run python3 ml/watchlist.py)' : 'starting';
+  void tg.send(`X watcher: ${watcherState}`);
   if (bearer && existsSync('data/watchlist.json')) {
     const handles = (JSON.parse(readFileSync('data/watchlist.json', 'utf8')) as { accounts: { handle: string }[] }).accounts.map((a) => a.handle);
     watcher = new XWatcher({
       bearer,
       handles,
-      onStatus: (s) => log.info(s),
+      onStatus: (st) => {
+        watcherState = st;
+        log.info(st);
+      },
       onPost: (c) => void onCandidate(c),
     });
     void watcher.start().catch((e) => void tg.send(`X watcher stopped: ${(e as Error).message}`));

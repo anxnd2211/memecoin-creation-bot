@@ -6,6 +6,7 @@ import { PLAYBOOK } from '../playbook.ts';
 import { DEFAULT_LIMITS } from '../live/board.ts';
 import { LiveFeed } from '../live/stream.ts';
 import { vanityLeft } from '../live/vanity.ts';
+import { pinMetadata } from '../live/ipfs.ts';
 import { launchPublicKey } from '../live/venue.ts';
 
 /**
@@ -16,7 +17,7 @@ import { launchPublicKey } from '../live/venue.ts';
  */
 
 if (process.argv.includes('--help')) {
-  console.log('usage: npm run doctor\n\nChecks the setup for a live session (docs/LIVE-RUNBOOK.md). Prints no secrets.');
+  console.log('usage: npm run doctor [--pin]\n\nChecks the setup for a live session (docs/LIVE-RUNBOOK.md). Prints no secrets. --pin also\npins a tiny test image and metadata to your Pinata account and checks a gateway serves them, as a launch would.');
   process.exit(0);
 }
 
@@ -43,6 +44,15 @@ try {
   say('FAIL', 'RPC', `${redactUrl(config.rpcHttp)} did not answer: ${(e as Error).message}`);
 }
 
+// Sender: tips and staked routes land launches and sells sooner; without it they go through the RPC only.
+say(
+  config.senderUrl ? 'OK' : 'WARN',
+  'Sender',
+  config.senderUrl
+    ? `${redactUrl(config.senderUrl)}, tip ${(config.senderTipLamports / 1e9).toFixed(4)} SOL per transaction`
+    : 'SENDER_URL not set: launches and sells go through the RPC alone, with no tip (successful devs tip about 0.005 SOL)',
+);
+
 // Feed lag
 {
   const feed = new LiveFeed();
@@ -63,9 +73,21 @@ const chat = env('TELEGRAM_CHAT_ID');
 if (!token || !chat) say('FAIL', 'Telegram', 'TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must both be set');
 else {
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(8_000) });
-    const body = (await res.json()) as { ok: boolean; result?: { username?: string } };
-    say(body.ok ? 'OK' : 'FAIL', 'Telegram', body.ok ? `bot @${body.result?.username} reachable; owner chat set` : `token rejected (HTTP ${res.status})`);
+    const api = (method: string, q = '') =>
+      fetch(`https://api.telegram.org/bot${token}/${method}${q}`, { signal: AbortSignal.timeout(8_000) }).then(
+        (r) => r.json() as Promise<{ ok: boolean; result?: Record<string, unknown>; description?: string }>,
+      );
+    const me = await api('getMe');
+    if (!me.ok) say('FAIL', 'Telegram', `token rejected (${me.description ?? 'no description'})`);
+    else {
+      const [hook, chatInfo] = await Promise.all([api('getWebhookInfo'), api('getChat', `?chat_id=${encodeURIComponent(chat)}`)]);
+      const webhook = String(hook.result?.url ?? '');
+      const group = Number(chat) < 0;
+      if (webhook) say('FAIL', 'Telegram', `a webhook is set (${webhook.replace(/\/\/[^/]+/, '//…')}): approvals would never arrive; remove it with deleteWebhook`);
+      else if (!chatInfo.ok) say('FAIL', 'Telegram', `the bot cannot see chat ${chat} (${chatInfo.description ?? 'unknown'}): send the bot a message first, then check TELEGRAM_CHAT_ID`);
+      else if (group && !env('TELEGRAM_OWNER_ID')) say('FAIL', 'Telegram', 'the chat is a group: set TELEGRAM_OWNER_ID so only you can approve');
+      else say('OK', 'Telegram', `bot @${String(me.result?.username)} can reach ${group ? 'the group' : 'your chat'}; no webhook`);
+    }
   } catch (e) {
     say('FAIL', 'Telegram', `could not reach the Bot API: ${(e as Error).message}`);
   }
@@ -151,6 +173,32 @@ if (existsSync(config.dbPath)) {
     say(ok ? 'OK' : 'FAIL', 'IPFS', `${ok} of ${results.length} gateways answer: ${results.join(', ')}`);
   }
 }
+
+// Pinata upload rehearsal (--pin): pins a tiny test image and metadata on the owner's account and checks a gateway
+// serves it back, the same path a launch takes. It publishes only the test files, under the owner's Pinata account.
+if (process.argv.includes('--pin')) {
+  if (!jwt) say('FAIL', 'Pinata upload', 'PINATA_JWT is not set');
+  else {
+    const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+    const t = Date.now();
+    try {
+      const uri = await pinMetadata(
+        {
+          name: 'Launcher check',
+          symbol: 'CHECK',
+          description: `upload check ${new Date().toISOString()}`,
+          postUrl: 'https://x.com/x/status/1',
+          website: 'https://example.com',
+          image: { bytes: png, mime: 'image/png', filename: 'check.png' },
+        },
+        { jwt, checkGateways: config.ipfsGateways },
+      );
+      say('OK', 'Pinata upload', `pinned and served back in ${((Date.now() - t) / 1000).toFixed(1)} s: ${uri}`);
+    } catch (e) {
+      say('FAIL', 'Pinata upload', `${(e as Error).message} (the key needs the pinFileToIPFS and pinJSONToIPFS scopes)`);
+    }
+  }
+} else say('OK', 'Pinata upload', 'not rehearsed (npm run doctor -- --pin pins a tiny test file to check the whole upload)');
 
 // Mint addresses, kill switch, playbook
 const left = vanityLeft();
