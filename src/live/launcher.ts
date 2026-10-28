@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { Keypair } from '@solana/web3.js';
+import { CURVE_FEE_RATE, LAUNCH_VIRTUAL_SOL as LAUNCH_VSOL } from '../chain/curve.ts';
 import { exitFor, type Playbook } from '../playbook.ts';
 import type { ExitPolicy } from '../sim/simulate.ts';
 import { boardState, formatGates, launchBoard, type BoardState, type Limits } from './board.ts';
@@ -52,6 +53,12 @@ export type LaunchResult =
   | { status: 'launched'; fill: LaunchFill; sell: SellFill | null; exit: ExitDecision | null; pnlNote: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Virtual SOL at which the bag is sold before the curve completes (it completes at about 115). A completed curve moves
+ * the coin to PumpSwap, where the bonding-curve sell no longer works.
+ */
+export const NEAR_GRADUATION_VSOL = 105;
 
 export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft, narrative: string): Promise<LaunchResult> {
   const p = d.playbook;
@@ -146,9 +153,17 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   let decision: ExitDecision | null = null;
   const laterBuyers = new Set<string>();
   let sold = false;
+  // The curve's virtual SOL, from our buy and everyone's trades since (SOL into the curve is the trade's SOL less fees).
+  let vSol = LAUNCH_VSOL + Number(fill.lamportsSpent) / 1e9 / (1 + CURVE_FEE_RATE);
   const stopWatching = d.watch(mint, fill, (t) => {
     if (t.isBuy && !t.dev && t.receivedAt - fill.landedAt > 2_000) laterBuyers.add(t.wallet);
-    if (!decision && !sold) decision = engine.onTrade(t);
+    if (!t.dev) vSol += t.isBuy ? t.sol / (1 + CURVE_FEE_RATE) : -t.sol / (1 - CURVE_FEE_RATE);
+    if (!decision && !sold) {
+      decision = engine.onTrade(t);
+      if (!decision && vSol >= NEAR_GRADUATION_VSOL) {
+        decision = { reason: 'near graduation', at: Date.now(), ageSec: (Date.now() - fill.landedAt) / 1000 };
+      }
+    }
   });
   const tickMs = d.tickMs ?? 200;
   while (!decision) {
@@ -168,7 +183,10 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     note = `sold on ${decision!.reason} at ${decision!.ageSec.toFixed(1)} s in ${sell.attempts} attempt(s)`;
   } catch (e) {
     note = `SELL FAILED: ${(e as Error).message}`;
-    await d.notifier.send(`SELL OF $${draft.symbol} FAILED after retries: ${(e as Error).message}. Sell ${mint} by hand now.`);
+    await d.notifier.send(
+      `SELL OF $${draft.symbol} FAILED after retries: ${(e as Error).message}. Sell ${mint} by hand now ` +
+        `(on pump.fun; if the curve has completed, the coin trades on PumpSwap).`,
+    );
   }
 
   // 7. Keep counting later buyers for a while, then record the result.

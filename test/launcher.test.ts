@@ -112,3 +112,17 @@ test('a sell that fails every attempt alerts the owner and is recorded', async (
   const row = db.prepare('SELECT notes FROM our_launches').get() as { notes: string };
   assert.ok(row.notes.startsWith('SELL FAILED'));
 });
+
+test('the bag is sold before the curve completes', async () => {
+  const { deps, db } = setup();
+  // Heavy buying: about 75 SOL in, which takes the curve near completion before the stand-in exit would sell.
+  deps.watch = (_mint, _landing, onTrade) => {
+    for (let i = 0; i < 15; i++) onTrade({ slot: 2 + i, chainTs: NOW, receivedAt: Date.now() + 3000, wallet: `W${i}`, isBuy: true, sol: 5, tokens: 1, dev: false });
+    return () => {};
+  };
+  deps.makeExit = () => ({ onTrade: () => null, onTick: () => null, kill: () => {} });
+  const r = await runLaunch(deps, post, draft, 'x');
+  assert.equal(r.status === 'launched' && r.exit?.reason, 'near graduation');
+  const row = db.prepare('SELECT notes FROM our_launches').get() as { notes: string };
+  assert.ok(row.notes.includes('near graduation'));
+});
