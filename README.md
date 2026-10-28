@@ -91,6 +91,22 @@ fork itself: a recorded 2 SOL mainnet launch replays with the same balance chang
 `npm test` repeats that check. `src/paper/fork.ts` (`launch`, `buy`, `sell`, any number of local wallets) is what the
 paper-mode loop will run on.
 
+## Live launcher
+
+`npm run live` runs the launcher under the current playbook; the checklist for a session is
+[docs/LIVE-RUNBOOK.md](docs/LIVE-RUNBOOK.md).
+
+```bash
+npm run live -- --mode fork      # one launch end to end on the local pump.fun copy, a real launch's traders replayed
+npm run live -- --mode dry       # real feed and Telegram; launches simulated against mainnet, never sent
+npm run live -- --mode live      # real launches from LAUNCH_KEYPAIR_PATH, each approved on Telegram
+```
+
+Each launch passes the launch board (`src/live/board.ts`): fixed gates, each failing closed, ending with your
+approval on Telegram. Then the dev buy goes out in the create transaction, the exit manager (`src/live/exit.ts`)
+watches the coin's trades live and sells the whole bag when buying stalls, and the result is recorded for
+`npm run postmortem`. `/kill` on Telegram, or a file at `data/KILL`, stops new launches at once.
+
 ## Layout
 
 ```
@@ -99,8 +115,9 @@ src/intel      engine, positions, archetypes, report queries, dev screen
 src/market     SOL and quote prices, coin metadata fetcher
 src/sim        trade-order rebuild, launch replay, selling plans, backtest scoring
 src/paper      local pump.fun fork (LiteSVM + mainnet binaries), snapshot cache, mainnet replay check
+src/live       launch board, launch sequence, venues, exit manager, feed, Telegram, designer, IPFS, X watcher
 src/store      SQLite schema and writes
-src/cli        observe, report, inspect, devs, simulate, traits, export-launches, export-paths, postmortem, paper-fork, wallet-history, backfills, update-idl
+src/cli        observe, report, inspect, devs, simulate, traits, export-launches, export-paths, postmortem, paper-fork, live, shadow, wallet-history, backfills, update-idl
 src/playbook.ts  the versioned launch playbook (docs/PLAYBOOK.md)
 src/postmortem.ts  the batch review: gap split into picking, coins and execution
 ml/            Python models and market reports over the launch export (docs/MODELS.md)
