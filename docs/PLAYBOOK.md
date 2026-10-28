@@ -39,6 +39,7 @@ each required to replicate in both halves of the hours:
 | Flow exit vs the 20 s timer by real delay, 713 launches at 5 SOL (slots are 0.213 s, not 0.4) | +0.22 at 0.4 s, +0.17 at 1–1.5 s, +0.12 at 2.5–3 s (all beyond noise), +0.05 at 5 s (noise) |
 | 15 s timer vs 20 s timer, same launches | 3.60 vs 3.49 SOL a launch |
 | Live shadow runs on the public feed (exit only, 3 SOL+ launches, no link rules) | 14 runs +3.45 (all profitable); 10 runs +2.55 |
+| Live shadow session, 2026-10-28 00:38–01:08 UTC (88 launches, feed lag 1.25 s, all flow exits) | +4.80 a launch, 86% profitable. Ours beat the recorded dev on 56% of launches. Inside our band: 3 SOL +1.57 vs +1.12, 3.2–4.9 SOL +2.78 vs +1.96, 5 SOL +2.13 vs +2.22 (10 runs). Above 5.2 SOL the devs who held runners for minutes did better (+10.64 vs +8.11), the tail no exit predicted in time |
 
 The sealed launches (22:35–23:09) had only 2 that met every v3 rule: not enough to confirm it yet.
 
