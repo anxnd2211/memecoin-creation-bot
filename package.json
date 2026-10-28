@@ -23,7 +23,8 @@
     "export-launches": "node --disable-warning=ExperimentalWarning src/cli/exportLaunches.ts",
     "postmortem": "node --disable-warning=ExperimentalWarning src/cli/postmortem.ts",
     "export-paths": "node --disable-warning=ExperimentalWarning src/cli/exportPaths.ts",
-    "paper-fork": "node --disable-warning=ExperimentalWarning src/cli/paperFork.ts"
+    "paper-fork": "node --disable-warning=ExperimentalWarning src/cli/paperFork.ts",
+    "shadow": "node --disable-warning=ExperimentalWarning src/cli/shadow.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

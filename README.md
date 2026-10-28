@@ -107,6 +107,27 @@ approval on Telegram. Then the dev buy goes out in the create transaction, the e
 watches the coin's trades live and sells the whole bag when buying stalls, and the result is recorded for
 `npm run postmortem`. `/kill` on Telegram, or a file at `data/KILL`, stops new launches at once.
 
+## Shadow mode
+
+`npm run shadow` runs the playbook's live exit on other devs' launches as if we were their dev: the live check that
+the backtest's numbers hold in real time. It needs no keys and sends nothing; it reads the same public websocket as
+the observer and never touches `data/observer.db`.
+
+```bash
+npm run shadow                                   # 60 minutes, launches in the playbook's 4.9-5.1 SOL band
+npm run shadow -- --minutes 30 --min-dev-buy 2.95 --max-dev-buy inf   # a wider band
+npm run shadow -- --exit flow                    # force the flow exit even when the feed is slow
+npm run shadow -- --summary                      # summary of every run recorded so far
+```
+
+For each normal-mode launch whose dev bought in the band in the create transaction, it replays the coin on the curve
+with our bag in place of the dev's (as `npm run simulate` does), lets `src/live/exit.ts` decide live, and lands our
+whole-bag sell 2 slots after the chain's slot at the decision, feed lag included. The exit is the one the live bot
+would pick: the flow exit while the feed's p95 lag is at most 2 s, else the 20 s timer. Each run is appended to
+`data/shadow/runs.jsonl` with the decision reason and age, the feed lag, what the sell fetched, creator fees for
+`--follow` minutes (10, the backtest's horizon) and what the recorded dev did; a running summary prints after each run.
+It does not check links or post age, so expect less than the playbook's figures for launches meeting every rule.
+
 ## Layout
 
 ```
