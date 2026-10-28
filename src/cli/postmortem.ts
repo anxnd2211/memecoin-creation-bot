@@ -43,9 +43,17 @@ const traits = launchTraits(db, clear, (clear[0]?.createdTs ?? nowTs) - 86400);
 const matching = clear.filter((c) => c.clean && matchesPlaybook(PLAYBOOK, traits.get(c.mint)!));
 const byMint = new Map(coins.map((c) => [c.mint, c]));
 
-let batch: { coin: BacktestCoin; pnl: number; drew: boolean; postAgeSec: number | null; firstOnPost: boolean | null }[];
+/**
+ * The batch. `coin` is the launch as the observer recorded it, for the replays; null when the observer has no usable
+ * record of it (a feed gap, too little time since), in which case the launch counts with its actual result and no
+ * replay comparison.
+ */
+let batch: { mint: string; ts: number; symbol: string | null; coin: BacktestCoin | null; pnl: number; drew: boolean; postAgeSec: number | null; firstOnPost: boolean | null }[];
 if (shadow) {
   batch = matching.slice(-size).map((coin) => ({
+    mint: coin.mint,
+    ts: coin.createdTs,
+    symbol: coin.symbol,
     coin,
     pnl: runPolicy([coin], RECORDED_DEV, o)[0]!,
     drew: coin.active,
@@ -54,19 +62,19 @@ if (shadow) {
   }));
 } else {
   const rows = db
-    .prepare(`SELECT mint, pnl_sol, drew, post_age_sec, first_on_post FROM our_launches
+    .prepare(`SELECT mint, created_ts, pnl_sol, drew, post_age_sec, first_on_post FROM our_launches
               WHERE mode = ? AND pnl_sol IS NOT NULL ORDER BY created_ts DESC LIMIT ?`)
-    .all(opt('mode') ?? 'paper', size) as { mint: string; pnl_sol: number; drew: number; post_age_sec: number | null; first_on_post: number | null }[];
-  batch = rows
-    .reverse()
-    .filter((r) => byMint.has(r.mint))
-    .map((r) => ({
-      coin: byMint.get(r.mint)!,
-      pnl: r.pnl_sol,
-      drew: Boolean(r.drew),
-      postAgeSec: r.post_age_sec,
-      firstOnPost: r.first_on_post === null ? null : Boolean(r.first_on_post),
-    }));
+    .all(opt('mode') ?? 'paper', size) as { mint: string; created_ts: number; pnl_sol: number; drew: number; post_age_sec: number | null; first_on_post: number | null }[];
+  batch = rows.reverse().map((r) => ({
+    mint: r.mint,
+    ts: r.created_ts,
+    symbol: byMint.get(r.mint)?.symbol ?? r.mint.slice(0, 6),
+    coin: byMint.get(r.mint) ?? null,
+    pnl: r.pnl_sol,
+    drew: Boolean(r.drew),
+    postAgeSec: r.post_age_sec,
+    firstOnPost: r.first_on_post === null ? null : Boolean(r.first_on_post),
+  }));
 }
 if (!batch.length) {
   console.error(shadow ? 'No recorded launches match the playbook.' : 'No launches of ours with results yet; try --shadow 10.');
@@ -74,9 +82,12 @@ if (!batch.length) {
 }
 
 // Expectation: other devs' launches under the same rules in the 24 hours before the batch.
-const from = batch[0]!.coin.createdTs;
-const inBatch = new Set(batch.map((b) => b.coin.mint));
-const before = matching.filter((c) => c.createdTs < from && c.createdTs >= from - 86400 && !inBatch.has(c.mint));
+const from = batch[0]!.ts;
+const inBatch = new Set(batch.map((b) => b.mint));
+// With fewer than 5 such launches (a short recording, strict rules) every matching launch outside the batch is used.
+const prior = matching.filter((c) => c.createdTs < from && c.createdTs >= from - 86400 && !inBatch.has(c.mint));
+const before = prior.length >= 5 ? prior : matching.filter((c) => !inBatch.has(c.mint));
+const expectationFrom = prior.length >= 5 ? 'in the 24 h before' : 'outside the batch (too few in the 24 h before)';
 const beforePnl = runPolicy(before, PLAYBOOK.exit, o);
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const exp: Expectation = {
@@ -86,29 +97,32 @@ const exp: Expectation = {
   meanDead: mean(beforePnl.filter((_, i) => !before[i]!.active)),
 };
 
-const batchCoins = batch.map((b) => b.coin);
-const plan = runPolicy(batchCoins, PLAYBOOK.exit, o);
+// A launch the observer has no record of replays as its own result under every plan: no gap, no hindsight edge.
+const replay = (policy: Parameters<typeof runPolicy>[1]) => batch.map((b) => (b.coin ? runPolicy([b.coin], policy, o)[0]! : b.pnl));
+const plan = replay(PLAYBOOK.exit);
 const outcomes: LaunchOutcome[] = batch.map((b, i) => ({
-  mint: b.coin.mint,
-  symbol: b.coin.symbol,
+  mint: b.mint,
+  symbol: b.symbol,
   pnl: b.pnl,
   drew: b.drew,
   planPnl: plan[i]!,
   postAgeSec: b.postAgeSec,
   firstOnPost: b.firstOnPost,
 }));
-const hindsight = new Map(policyGrid().map((p) => [p.name, runPolicy(batchCoins, p, o)] as const));
+const hindsight = new Map(policyGrid().map((p) => [p.name, replay(p)] as const));
 const pm = postMortem(outcomes, exp, hindsight, PLAYBOOK.pauseAfterDeadInARow);
+const unreplayed = batch.filter((b) => !b.coin).length;
 
 const f = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(2)}`;
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const when = (ts: number) => new Date(ts * 1000).toISOString().slice(5, 16).replace('T', ' ');
 console.log(
   `\n== Post-mortem, playbook v${PLAYBOOK.version}${shadow ? ' (shadow: recorded devs as "us")' : ''}: ${pm.launches} launches, ` +
-    `${when(from)}-${when(batch.at(-1)!.coin.createdTs)} UTC ==\n`,
+    `${when(from)}-${when(batch.at(-1)!.ts)} UTC ==\n`,
 );
+if (unreplayed) console.log(`  (${unreplayed} launch(es) not in the observer's record: counted at their actual result, without a replay)`);
 console.log(`  Made          ${f(pm.total)} SOL (${f(pm.mean)} a launch); expected ${f(pm.expectedMean)} a launch from ${exp.launches} ` +
-  `matching launches by other devs in the 24 h before`);
+  `matching launches by other devs ${expectationFrom}`);
 console.log(`  Drew buyers   ${pct(pm.hitRate)} (90% ${pct(pm.hitRateLo)}-${pct(pm.hitRateHi)}); expected ${pct(exp.hitRate)}`);
 console.log(`  Gap a launch  picking ${f(pm.gap.picking)}, coins ${f(pm.gap.coins)}, execution ${f(pm.gap.execution)} SOL`);
 console.log(`  Exit          ${pm.exitHindsight ? `"${pm.exitHindsight.plan}" beat it in hindsight beyond noise` : 'no plan beat the playbook exit beyond noise in hindsight'}`);
