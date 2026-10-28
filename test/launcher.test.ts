@@ -126,3 +126,13 @@ test('the bag is sold before the curve completes', async () => {
   const row = db.prepare('SELECT notes FROM our_launches').get() as { notes: string };
   assert.ok(row.notes.includes('near graduation'));
 });
+
+test('a failed metadata upload stops the launch after approval, before any SOL moves', async () => {
+  const s = setup();
+  s.deps.uploadMetadata = async () => {
+    throw new Error('gateway did not serve it in time');
+  };
+  const r = await runLaunch(s.deps, post, draft, 'x');
+  assert.deepEqual([r.status, r.status === 'blocked' && r.stage], ['blocked', 'metadata']);
+  assert.equal(s.venue.curve.vSol, 30);
+});

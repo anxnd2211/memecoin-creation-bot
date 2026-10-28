@@ -60,6 +60,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export const NEAR_GRADUATION_VSOL = 105;
 
+/** An ipfs.io URI the length of a real one (a 59-character CIDv1), for the preflight before the upload finishes. */
+const PLACEHOLDER_URI = `https://ipfs.io/ipfs/bafkrei${'a'.repeat(52)}`;
+
 export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft, narrative: string): Promise<LaunchResult> {
   const p = d.playbook;
   const balance = async () => {
@@ -79,17 +82,16 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     return { status: 'blocked', stage: 'board', detail: formatGates(first.gates) };
   }
 
-  // 2. Metadata, then the preflight simulation of the exact launch transaction.
-  let uri: string;
-  try {
-    uri = await d.uploadMetadata(draft);
-  } catch (e) {
-    await d.notifier.send(`Launch of $${draft.symbol} blocked: metadata upload failed: ${(e as Error).message}`);
-    return { status: 'blocked', stage: 'metadata', detail: (e as Error).message };
-  }
+  // 2. The metadata upload starts now and runs while the owner looks at the card; the preflight simulates the launch
+  // with a placeholder URI of the same length (the launch itself is simulated again, with the real URI, before it is
+  // sent).
+  const upload = d.uploadMetadata(draft).then(
+    (uri) => ({ uri, error: null as string | null }),
+    (e: Error) => ({ uri: null as string | null, error: e.message }),
+  );
   const mintKey = Keypair.generate();
   const mintSecret = mintKey.secretKey;
-  const params = { name: draft.name, symbol: draft.symbol, uri, devBuySol: p.devBuySol, mintSecret };
+  const params = { name: draft.name, symbol: draft.symbol, uri: PLACEHOLDER_URI, devBuySol: p.devBuySol, mintSecret };
   let preflight: string;
   try {
     await d.venue.preflightLaunch(params);
@@ -116,6 +118,12 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     timeoutSec: d.approvalTimeoutSec ?? 30,
   });
   if (!answer.approved) return { status: 'blocked', stage: 'approval', detail: answer.by };
+  const uploaded = await upload;
+  if (!uploaded.uri) {
+    await d.notifier.send(`Launch of $${draft.symbol} blocked: metadata upload failed: ${uploaded.error}`);
+    return { status: 'blocked', stage: 'metadata', detail: uploaded.error ?? 'no URI' };
+  }
+  params.uri = uploaded.uri;
 
   // 4. The world may have moved while the owner looked: check the board again, approval included.
   const final = launchBoard({ playbook: p, limits: d.limits, post, draft, state: await state(), compliance, preflight, approved: true });
