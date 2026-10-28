@@ -32,6 +32,20 @@ you can afford to lose entirely.
    `/kill` stops everything.
 6. **After the batch:** `npm run postmortem -- --mode live`.
 
+## A smaller launch wallet
+
+The playbook buys 5 SOL and wants about 8 SOL in the wallet. With less, start the launcher with `--dev-buy`
+(`python3 ml/smallwallet.py <wallet SOL>` re-runs the analysis):
+
+| Wallet | Use | Why |
+| --- | --- | --- |
+| About 2.2–3 SOL | `--dev-buy 2` or `--dev-buy auto` | Sniper bots answer exactly 2.000 SOL into the curve (sniped 74–79% of the time, against 12–57% for 1.95–2.4 SOL). Strong-post launches at 2 SOL made +1.24 SOL each by others' records; a dead one costs about 0.05 SOL. With 2.5 SOL the wallet can lose about 0.33 SOL to dead launches before it can no longer pay for one |
+| About 3.2–3.5 SOL | `--dev-buy 2`, not 3 | 3 SOL needs 3.19 SOL in the wallet, so one dead launch strands it; in simulation a 3.25 SOL wallet buying 3 SOL ended at a loss 37% of the time when our hit rate was half of theirs |
+| About 8 SOL | the default (5 SOL) | 5 SOL made the most per launch and per SOL |
+
+`--dev-buy auto` buys 2 SOL until the wallet holds 5.0625 + 0.15 reserve + 0.3 buffer = 5.51 SOL, then 5 SOL. Every
+size is an exact sniper tier (2, 3, 4 or 5 SOL into the curve); amounts in between draw fewer snipers.
+
 ## What the bot does on each launch (playbook v3)
 
 1. **A candidate post arrives.** The X watcher streams it from a watched account, or you send it yourself as a

@@ -61,6 +61,14 @@ The sealed launches (22:35–23:09) had only 2 that met every v3 rule: not enoug
   were sniped as often on their next launch as other devs with a busy launch behind them. What predicts snipers is
   a busy launch in the dev's history (+11–17% drew buyers, replicated), not whether the dev held.
 
+### A smaller wallet: an exact 2 SOL dev buy
+
+Sniper bots also answer exactly 2.000 SOL into the curve (2.025 with fees): sniped 74–79% of the time across 73–86
+devs, against 12–49% for 1.95–1.97 SOL and 43–57% for 2.1–2.4 SOL. Strong-post launches at 2 SOL made +1.24 SOL each
+(162 launches, 82 devs), against +2.22 at 3 SOL and +4.36 at 5 SOL; the same 19 devs made about the same at 2–2.95 SOL
+as at 3 SOL (+0.02, 90% −0.42 to +0.49). A wallet too small for 5 SOL launches with `--dev-buy 2` or `auto`
+(2 SOL until it can afford 5); never an amount between the tiers. Evidence: `python3 ml/smallwallet.py`.
+
 ### Next candidate: a 7 SOL dev buy
 
 On all data to 2026-10-28 02:30 UTC, each size's expected result weighs how often snipers come by what our bag

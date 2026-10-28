@@ -62,6 +62,11 @@ export interface LaunchDeps {
   resolvePending?: (launches: { mint: string; uri: string | null }[], postId: string) => Promise<{ linked: number; unknown: number }>;
   /** Throws if the exit engine cannot run this policy, checked before any SOL moves. */
   validateExit?: (policy: ExitPolicy) => void;
+  /**
+   * The dev buy (SOL, fees included) for a wallet holding `balanceLamports`, when it depends on the wallet; the
+   * playbook's otherwise. The board then checks the wallet can pay it.
+   */
+  devBuyFor?: (balanceLamports: bigint | null) => number;
   /** The mode written to our_launches (default the venue's); smoke tests record as 'smoke', apart from real launches. */
   recordAs?: 'smoke';
   /** A mint keypair's secret key ending in "pump" (src/live/vanity.ts), or null for a random address. */
@@ -164,7 +169,6 @@ async function findBag(venue: Venue, mint: string, waitMs = 2_000, tries = 5): P
 const PLACEHOLDER_URI = `https://ipfs.io/ipfs/bafkrei${'a'.repeat(52)}`;
 
 export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft, narrative: string): Promise<LaunchResult> {
-  const p = d.playbook;
   const balance = async () => {
     try {
       return await d.venue.balanceLamports();
@@ -172,6 +176,8 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
       return null;
     }
   };
+  // The dev buy for this launch: the playbook's, or the size the wallet allows (src/live/devbuy.ts).
+  const p = d.devBuyFor ? { ...d.playbook, devBuySol: d.devBuyFor(await balance()) } : d.playbook;
   /**
    * The board's state. Launches made in the last few seconds may not have their metadata yet, so whether one links
    * this post is unknown; the observer fetches it within seconds, so wait for it (up to `PENDING_WAIT_MS`) rather than

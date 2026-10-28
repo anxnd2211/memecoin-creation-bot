@@ -239,3 +239,11 @@ test('an error from a fork or dry venue leaves no record and no pause', async ()
   assert.equal(paused.length, 0);
   assert.equal((s.db.prepare('SELECT COUNT(*) AS n FROM our_launches').get() as { n: number }).n, 0);
 });
+
+test('a dev buy chosen from the wallet is the one launched and recorded', async () => {
+  const s = setup();
+  s.deps.devBuyFor = () => 2.025;
+  await runLaunch(s.deps, post, draft, 'x');
+  const row = s.db.prepare('SELECT dev_buy_sol FROM our_launches').get() as { dev_buy_sol: number };
+  assert.equal(row.dev_buy_sol, 2.025);
+});

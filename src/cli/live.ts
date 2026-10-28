@@ -15,6 +15,7 @@ import { replayOnFork } from '../live/forkReplay.ts';
 import { pinMetadata } from '../live/ipfs.ts';
 import { sellLeftoverBags } from '../live/recover.ts';
 import { takeVanity, vanityLeft } from '../live/vanity.ts';
+import { devBuyFor, parseDevBuy, withFees } from '../live/devbuy.ts';
 import { runLaunch, type LaunchDeps } from '../live/launcher.ts';
 import { LiveFeed } from '../live/stream.ts';
 import { TelegramNotifier, USAGE, type CommandMessage } from '../live/telegram.ts';
@@ -29,7 +30,7 @@ const opt = (name: string): string | undefined => {
 };
 
 if (args.includes('--help')) {
-  console.log(`usage: npm run live -- --mode fork|dry|live [--smoke] [--replay <mint> | --batch N] [--speed 1]
+  console.log(`usage: npm run live -- --mode fork|dry|live [--smoke] [--dev-buy 2|3|4|5|auto] [--replay <mint> | --batch N] [--speed 1]
 
 Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   fork  one launch end to end on the local copy of pump.fun: a recorded launch's traders (--replay <mint>, or the most
@@ -39,6 +40,8 @@ Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   dry   the real feed, the observer's database and Telegram: launch cards come from /launch or the X watcher, every
         gate runs and you approve on Telegram, but the launch and the sell are simulated against mainnet, never sent.
   live  real launches from the wallet in LAUNCH_KEYPAIR_PATH, each approved by you on Telegram.
+  --dev-buy  for a wallet smaller than the playbook's 5 SOL: exactly 2, 3, 4 or 5 SOL into the curve (the amounts sniper
+        bots answer), or auto: 2 SOL until the wallet can afford 5 SOL with a 0.3 SOL buffer, then 5.
   --smoke  with live: one real launch with a 0.1 SOL dev buy (about 0.012 SOL of cost) to check everything end to end.
         Use a separate test wallet: a dead launch in the launch wallet's history costs it snipers later.
 Stop launching at any time with /kill on Telegram or by creating the file data/KILL.`);
@@ -53,6 +56,19 @@ const mode = (opt('mode') ?? 'fork') as Mode;
  */
 const smoke = args.includes('--smoke');
 const playbook: Playbook = smoke ? { ...PLAYBOOK, devBuySol: 0.10125, devBuyBands: ['<1'] } : PLAYBOOK;
+/**
+ * --dev-buy for a wallet smaller than the playbook's 5 SOL: an exact sniper tier (2, 3, 4 or 5 SOL into the curve), or
+ * auto, which buys 2 SOL until the wallet can afford 5 with a buffer (src/live/devbuy.ts, ml/smallwallet.py).
+ */
+const devBuyChoice = parseDevBuy(opt('dev-buy'));
+if (opt('dev-buy') !== undefined && devBuyChoice === null) {
+  console.error('--dev-buy must be 2, 3, 4, 5 (SOL into the curve, the amounts sniper bots answer) or auto');
+  process.exit(1);
+}
+const lamportsToSol = (l: bigint | null) => (l === null ? null : Number(l) / 1e9);
+/** The playbook for a launch from a wallet holding `balance`: the chosen dev buy, when there is one. */
+const playbookFor = (balance: bigint | null): Playbook =>
+  devBuyChoice && !smoke ? { ...playbook, devBuySol: devBuyFor(devBuyChoice, lamportsToSol(balance)) } : playbook;
 if (!['fork', 'dry', 'live'].includes(mode)) {
   console.error('--mode must be fork, dry or live');
   process.exit(1);
@@ -84,7 +100,11 @@ async function forkRun(): Promise<void> {
   const coins = loadBacktestCoins(db, now() - 14 * 86400, now() - 600);
   const wanted = opt('replay');
   const batch = Number(opt('batch') ?? 0);
-  const fiveSol = coins.filter((c) => c.launchBuySol >= 4.95 && c.launchBuySol < 5.2).sort((a, b) => b.createdTs - a.createdTs);
+  // Recorded launches at the dev buy we will use (5 SOL, or the --dev-buy tier), so their sniper flow fits our buy.
+  const tier = typeof devBuyChoice === 'number' ? devBuyChoice : 5;
+  const fiveSol = coins
+    .filter((c) => Math.abs(c.launchBuySol - withFees(tier)) < 0.06)
+    .sort((a, b) => b.createdTs - a.createdTs);
   const picks = wanted
     ? coins.filter((c) => c.mint === wanted)
     : batch > 0
@@ -134,6 +154,7 @@ async function forkOne(venue: ForkVenue, pick: BacktestCoin, speed: number) {
   };
   let sold = false;
   const deps = baseDeps(venue, consoleNotifier, null);
+  if (devBuyChoice) deps.devBuyFor = (b) => playbookFor(b).devBuySol;
   deps.limits = { ...DEFAULT_LIMITS, maxObserverStaleSec: Infinity };
   deps.uploadMetadata = async () => 'https://ipfs.io/ipfs/fork-run';
   deps.settleSec = Math.max(1, Math.round(60 / speed));
@@ -306,6 +327,7 @@ async function liveRun(): Promise<void> {
   // Live launches use ground "pump" addresses, as pump.fun's site does; dry runs and smoke tests leave the pool alone.
   if (mode === 'live' && !smoke) deps.nextMint = () => takeVanity();
   if (smoke) deps.recordAs = 'smoke';
+  if (devBuyChoice && !smoke) deps.devBuyFor = (b) => playbookFor(b).devBuySol;
   let busy = false;
   process.on('unhandledRejection', (e) => {
     log.error('unhandled rejection', { err: (e as Error)?.message ?? String(e) });
@@ -320,7 +342,7 @@ async function liveRun(): Promise<void> {
     (smoke ? 'SMOKE TEST: one 0.1 SOL launch to check everything end to end; use a separate test wallet.\n' : '') +
     `Launcher started in ${mode} mode, playbook v${PLAYBOOK.version}. Wallet ${venue.dev}: ` +
       `${balance === null ? 'balance unknown' : `${(Number(balance) / 1e9).toFixed(4)} SOL`}. ` +
-      `Dev buy ${playbook.devBuySol} SOL; kill switch ${killed() ? 'ON' : 'off'}; ${vanityLeft()} "pump" mint addresses ` +
+      `Dev buy ${devBuyChoice && !smoke ? `${devBuyChoice === 'auto' ? 'auto (2 SOL until the wallet can afford 5)' : `${devBuyChoice} SOL`}, now ${playbookFor(balance).devBuySol.toFixed(4)} SOL with fees` : `${playbook.devBuySol} SOL`}; kill switch ${killed() ? 'ON' : 'off'}; ${vanityLeft()} "pump" mint addresses ` +
       `ground${vanityLeft() === 0 ? ' (run npm run grind: launches will use random addresses)' : ''}.\n\n${USAGE}`,
   );
 
@@ -413,7 +435,8 @@ async function liveRun(): Promise<void> {
       const post = { ...parsePost(c.url), authorName: null, text: c.text };
       const draft = buildDraft(post, { name: d.name, ticker: d.symbol, image: { bytes, mime, filename: `post.${mime.split('/')[1]}` } });
       // A silent first check, so posts that fail the board do not each send a message.
-      const pre = launchBoard({ playbook, limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: await venue.balanceLamports().catch(() => null), killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
+      const bal = await venue.balanceLamports().catch(() => null);
+      const pre = launchBoard({ playbook: playbookFor(bal), limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: bal, killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
       // Launches made seconds ago may not have their metadata yet; the launch sequence waits for it, so only a post
       // already taken, or another gate, drops the candidate here.
       const blocking = pre.gates.filter((g) => !g.pass && !(g.name === 'first on the post' && g.detail.startsWith('0 launches')));
