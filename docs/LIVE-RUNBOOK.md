@@ -47,6 +47,7 @@ Each step must pass before the next:
 
 ```bash
 npm test                                    # all tests pass
+npm run grind -- --count 20                 # mint addresses ending in "pump", like the site's (about 2-3 min each)
 npm run live -- --mode fork                 # one launch end to end on the local pump.fun copy, a real launch's traders replayed
 npm run shadow -- --minutes 30              # the exit manager live on other devs' 5 SOL launches
 npm run live -- --mode dry                  # real feed, real Telegram, launches simulated against mainnet, nothing sent
@@ -62,6 +63,9 @@ npm run postmortem -- --mode live           # after the batch
   sold. `/resume` turns it off.
 - **Hard limits** (`src/live/board.ts`, `DEFAULT_LIMITS`): 10 launches a day, stop after −1.5 SOL in a day, at most
   5.1 SOL per dev buy, 0.15 SOL kept in reserve, and a pause after 3 dead launches in a row.
+- **If the bot stops mid-launch** (a crash, a restart, the Mac sleeping), start it again: it first sells any bag a
+  launch left behind, and pauses launching if one cannot be sold.
+- **Creator fees** pile up in the wallet's creator vault; `/claim` moves them to the wallet (simulated first).
 - **If a sell fails three times,** the bot alerts you on Telegram. Sell manually at once, in the pump.fun site or
   any wallet: an unsold bag is the one way to lose more than the fees.
 
