@@ -27,7 +27,8 @@
     "shadow": "node --disable-warning=ExperimentalWarning src/cli/shadow.ts",
     "live": "node --disable-warning=ExperimentalWarning src/cli/live.ts",
     "grind": "node --disable-warning=ExperimentalWarning src/cli/grind.ts",
-    "doctor": "node --disable-warning=ExperimentalWarning src/cli/doctor.ts"
+    "doctor": "node --disable-warning=ExperimentalWarning src/cli/doctor.ts",
+    "daily": "node --disable-warning=ExperimentalWarning src/cli/daily.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

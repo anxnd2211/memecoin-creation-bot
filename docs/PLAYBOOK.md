@@ -196,7 +196,8 @@ Each rule is dated with its evidence, so a later version can check whether it st
 
 ## How the playbook improves
 
-Every day, on the newest data:
+Every day, on the newest data: `npm run daily` runs the checks below and saves them to
+`data/reports/daily-<date>.txt`. One at a time:
 
 ```bash
 npm run simulate -- --folds 4 --horizon 10 --min-dev-buy 2.95   # does the exit still win on held-out blocks?
