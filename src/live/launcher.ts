@@ -281,7 +281,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     post,
     narrative,
     postAgeSec: d.now() - post.postedAt,
-    firstOnPost: true,
+    firstOnPost: (p.require.maxPriorLaunchesOnPost ?? 0) === 0,
     exitPlan: policy.name,
     feedLagSec: lag,
   });

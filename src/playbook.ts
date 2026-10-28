@@ -36,6 +36,11 @@ export interface Playbook {
     maxPostAgeSec: number | null;
     /** Launch only if no other launch has linked the same post yet. */
     firstOnPost: boolean;
+    /**
+     * With `firstOnPost`, how many earlier launches on the post are allowed: 0 normally; the launch-follower sets 1,
+     * since the first launch on a post is how it finds the post (later ones made +1.1 SOL at a 2 SOL bag).
+     */
+    maxPriorLaunchesOnPost?: number;
     /** Skip posts by an X account that 3 or more launches linked in the hour before (farmed accounts draw less). */
     skipFarmedAccounts: boolean;
   };

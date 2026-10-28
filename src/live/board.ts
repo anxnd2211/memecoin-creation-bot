@@ -95,9 +95,11 @@ export function launchBoard(i: BoardInput, upTo: 'all' | 'before preflight' = 'a
     stale === null ? 'no trades recorded' : `last trade recorded ${Math.round(stale)} s ago`,
   );
   if (p.require.firstOnPost) {
+    // 0 prior launches normally; the launch-follower allows exactly 1 (the trigger launch it is following).
+    const maxPrior = p.require.maxPriorLaunchesOnPost ?? 0;
     gate(
-      'first on the post',
-      known(s.postLaunches) && known(s.pendingLaunches) && s.postLaunches === 0 && s.pendingLaunches === 0,
+      maxPrior ? `at most ${maxPrior + 1} launches on the post` : 'first on the post',
+      known(s.postLaunches) && known(s.pendingLaunches) && s.postLaunches <= maxPrior && s.pendingLaunches === 0,
       !known(s.postLaunches) || !known(s.pendingLaunches)
         ? 'could not check'
         : `${s.postLaunches} launches already link it; ${s.pendingLaunches} recent launches not yet checked`,

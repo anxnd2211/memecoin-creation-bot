@@ -16,6 +16,7 @@ import { pinMetadata } from '../live/ipfs.ts';
 import { sellLeftoverBags } from '../live/recover.ts';
 import { takeVanity, vanityLeft } from '../live/vanity.ts';
 import { devBuyFor, parseDevBuy, withFees } from '../live/devbuy.ts';
+import { followLaunch } from '../live/follower.ts';
 import { runLaunch, type LaunchDeps } from '../live/launcher.ts';
 import { LiveFeed } from '../live/stream.ts';
 import { TelegramNotifier, USAGE, type CommandMessage } from '../live/telegram.ts';
@@ -30,7 +31,7 @@ const opt = (name: string): string | undefined => {
 };
 
 if (args.includes('--help')) {
-  console.log(`usage: npm run live -- --mode fork|dry|live [--smoke] [--dev-buy 2|3|4|5|auto] [--replay <mint> | --batch N] [--speed 1]
+  console.log(`usage: npm run live -- --mode fork|dry|live [--smoke] [--follow] [--dev-buy 2|3|4|5|auto] [--replay <mint> | --batch N] [--speed 1]
 
 Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   fork  one launch end to end on the local copy of pump.fun: a recorded launch's traders (--replay <mint>, or the most
@@ -40,6 +41,8 @@ Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   dry   the real feed, the observer's database and Telegram: launch cards come from /launch or the X watcher, every
         gate runs and you approve on Telegram, but the launch and the sell are simulated against mainnet, never sent.
   live  real launches from the wallet in LAUNCH_KEYPAIR_PATH, each approved by you on Telegram.
+  --follow  full automation without an X key: the first launch on a fresh post becomes the trigger for yours (the
+        second on the post, +1.1 SOL a launch at a 2 SOL bag on recorded data). You still approve every card.
   --dev-buy  for a wallet smaller than the playbook's 5 SOL: exactly 2, 3, 4 or 5 SOL into the curve (the amounts sniper
         bots answer), or auto: 2 SOL until the wallet can afford 5 SOL with a 0.3 SOL buffer, then 5.
   --smoke  with live: one real launch with a 0.1 SOL dev buy (about 0.012 SOL of cost) to check everything end to end.
@@ -55,7 +58,16 @@ const mode = (opt('mode') ?? 'fork') as Mode;
  * the launch wallet's history costs it snipers later. Recorded as 'smoke', apart from real launches.
  */
 const smoke = args.includes('--smoke');
-const playbook: Playbook = smoke ? { ...PLAYBOOK, devBuySol: 0.10125, devBuyBands: ['<1'] } : PLAYBOOK;
+/**
+ * --follow: full automation without an X key. The feed's new launches are read for fresh posts, and the first launch
+ * on a post becomes the trigger for ours (the second), so candidates arrive with no one watching X. The playbook's
+ * first-on-post gate then allows exactly that one prior launch, for /launch commands too.
+ */
+const follow = args.includes('--follow');
+const basePlaybook: Playbook = follow
+  ? { ...PLAYBOOK, require: { ...PLAYBOOK.require, maxPriorLaunchesOnPost: 1 } }
+  : PLAYBOOK;
+const playbook: Playbook = smoke ? { ...basePlaybook, devBuySol: 0.10125, devBuyBands: ['<1'] } : basePlaybook;
 /**
  * --dev-buy for a wallet smaller than the playbook's 5 SOL: an exact sniper tier (2, 3, 4 or 5 SOL into the curve), or
  * auto, which buys 2 SOL until the wallet can afford 5 with a buffer (src/live/devbuy.ts, ml/smallwallet.py).
@@ -467,11 +479,57 @@ async function liveRun(): Promise<void> {
     });
     void watcher.start().catch((e) => void tg.send(`X watcher stopped: ${(e as Error).message}`));
   }
+
+  // The launch-follower: new launches on the feed whose metadata links a fresh post become candidates (ours second).
+  let offFollower = () => {};
+  if (follow) {
+    const stats = { seen: 0, followed: 0 };
+    let chasing = false;
+    offFollower = feed.onLaunch((l) => {
+      stats.seen++;
+      if (busy || chasing || killed()) return;
+      chasing = true;
+      void (async () => {
+        try {
+          const { candidate, reason } = await followLaunch(l, { gateways: config.ipfsGateways });
+          if (!candidate) {
+            if (!['mayhem or not SOL', 'trigger dev buy too small', 'no post link in the metadata'].includes(reason)) {
+              log.debug('not followed', { mint: l.mint, reason });
+            }
+            return;
+          }
+          if (!candidate.image) {
+            log.info('not followed: the post image could not be read', { post: candidate.post.url });
+            return;
+          }
+          const info = await fetchPost(candidate.post.url).catch(() => candidate.post);
+          const post = { ...candidate.post, text: info.text, authorName: info.authorName };
+          const d = autoDraft(post.text) ?? { name: candidate.trigger.symbol.slice(0, 32), symbol: candidate.trigger.symbol.replace(/[^A-Za-z0-9]/g, '').slice(0, 10) || 'COIN', basis: 'the trigger launch' };
+          const draft = buildDraft(post, { name: d.name, ticker: d.symbol, image: candidate.image });
+          const bal = await venue.balanceLamports().catch(() => null);
+          const pre = launchBoard({ playbook: playbookFor(bal), limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: bal, killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
+          const blocking = pre.gates.filter((g) => !g.pass && !(g.name.includes('launches on the post') && /^[01] launches/.test(g.detail)));
+          if (blocking.length) {
+            log.info('not followed', { post: post.url, reason: blocking.map((g) => g.name).join(', ') });
+            return;
+          }
+          stats.followed++;
+          await launch(post, draft, `${post.text ?? d.name} (followed $${candidate.trigger.symbol}, drafted from ${d.basis})`);
+        } catch (e) {
+          log.warn('follower error', { mint: l.mint, err: (e as Error).message });
+        } finally {
+          chasing = false;
+        }
+      })();
+    });
+    void tg.send('Launch-follower ON: first launches on fresh posts become your approval cards automatically.');
+  }
   const stop = new AbortController();
   // A launch in flight finishes (its sell and its record) before the feed, Telegram and the database close.
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
+    offFollower();
     watcher?.stop();
     void (async () => {
       if (inFlight) {

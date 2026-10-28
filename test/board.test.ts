@@ -58,6 +58,13 @@ test('a launch that meets every rule passes, and each rule blocks on its own', (
   assert.deepEqual(failed(input({ approved: false })), ['owner approval']);
 });
 
+test('the follower playbook allows exactly one prior launch on the post', () => {
+  const pb = { ...PLAYBOOK, require: { ...PLAYBOOK.require, maxPriorLaunchesOnPost: 1 } };
+  assert.deepEqual(failed(input({ playbook: pb }, { postLaunches: 1 })), []);
+  assert.deepEqual(failed(input({ playbook: pb }, { postLaunches: 2 })), ['at most 2 launches on the post']);
+  assert.deepEqual(failed(input({ playbook: pb }, { postLaunches: 1, pendingLaunches: 1 })), ['at most 2 launches on the post']);
+});
+
 test('anything the board cannot find out blocks the launch', () => {
   const unknown = failed(input({ preflight: null, approved: null }, {
     observerLastTradeTs: null, postLaunches: null, pendingLaunches: null, accountLaunchesLastHour: null,

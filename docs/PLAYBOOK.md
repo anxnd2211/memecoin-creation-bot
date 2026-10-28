@@ -69,6 +69,14 @@ devs, against 12–49% for 1.95–1.97 SOL and 43–57% for 2.1–2.4 SOL. Stron
 as at 3 SOL (+0.02, 90% −0.42 to +0.49). A wallet too small for 5 SOL launches with `--dev-buy 2` or `auto`
 (2 SOL until it can afford 5); never an amount between the tiers. Evidence: `python3 ml/smallwallet.py`.
 
+### Launching second: the launch-follower
+
+Without an X key no one is watching X, so `--follow` turns the first launch on a post into the trigger for ours: the
+feed sees it within a second, its metadata names the post, and ours becomes the second launch on the post. Recorded
+second launches arriving within 60 s of the first on a post under 3 minutes old: +1.14 SOL a launch at a 2 SOL bag
+(576 launches, 65% profitable, about 16 chances an hour); first launches +1.34. Whether the first launch was sniped
+makes little difference (+1.17 vs +1.05). The first-on-post gate then allows exactly one prior launch.
+
 ### Next candidate: a 7 SOL dev buy
 
 On all data to 2026-10-28 02:30 UTC, each size's expected result weighs how often snipers come by what our bag

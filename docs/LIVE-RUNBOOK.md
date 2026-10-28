@@ -46,11 +46,29 @@ The playbook buys 5 SOL and wants about 8 SOL in the wallet. With less, start th
 `--dev-buy auto` buys 2 SOL until the wallet holds 5.0625 + 0.15 reserve + 0.3 buffer = 5.51 SOL, then 5 SOL. Every
 size is an exact sniper tier (2, 3, 4 or 5 SOL into the curve); amounts in between draw fewer snipers.
 
+## Full automation: where candidates come from
+
+Your only action is the Approve tap. Candidates reach the bot three ways, best first:
+
+| Source | Needs | How fast | What you do |
+| --- | --- | --- | --- |
+| **Launch-follower** (`--follow`) | nothing | ours is the 2nd launch on the post, seconds after the 1st; +1.1 SOL a launch at a 2 SOL bag on recorded data | tap Approve |
+| **X watcher** | an X API key in `.env` (console.x.com, pay-per-use) | ours is often the 1st launch (+1.3) | tap Approve |
+| **/launch by hand** | you watching X | depends on you | send the post, tap Approve |
+
+The follower works because other devs' bots watch X around the clock: the first launch on a post proves the post
+exists, and second launches do nearly as well as first ones. Start the bot with:
+
+```bash
+npm run live -- --mode live --follow --dev-buy auto
+```
+
 ## What the bot does on each launch (playbook v3)
 
-1. **A candidate post arrives.** The X watcher streams it from a watched account, or you send it yourself as a
-   photo with the caption `/launch <post url>`. With just the link, the ticker and name are drafted from the post's
-   text. To choose them yourself, use `/launch <post url> | <TICKER> | <Name> | <source url>`.
+1. **A candidate post arrives.** The launch-follower spots it from the first launch on the post, the X watcher
+   streams it from a watched account, or you send it yourself as a photo with the caption `/launch <post url>`. With
+   just the link, the ticker and name are drafted from the post's text. To choose them yourself, use
+   `/launch <post url> | <TICKER> | <Name> | <source url>`.
 2. **The coin is drafted:** name, ticker, image and description; the X link is the post; the website is the
    narrative's source. A compliance check runs.
 3. **The launch board runs**, every gate failing closed:
