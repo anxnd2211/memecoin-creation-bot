@@ -61,6 +61,22 @@ The sealed launches (22:35–23:09) had only 2 that met every v3 rule: not enoug
   were sniped as often on their next launch as other devs with a busy launch behind them. What predicts snipers is
   a busy launch in the dev's history (+11–17% drew buyers, replicated), not whether the dev held.
 
+### Next candidate: a 7 SOL dev buy
+
+On all data to 2026-10-28 02:30 UTC, each size's expected result weighs how often snipers come by what our bag
+makes when they do and when they don't:
+
+| Dev buy | Snipers came | Expected SOL a launch |
+| --- | --- | --- |
+| 5 SOL | 80% (94 devs) | +2.84 |
+| 7 SOL | 84% (14 devs) | +3.65 |
+| 8 SOL | 88% (12 devs) | not modelled |
+| 10 SOL | 21% (58 devs) | +1.77 |
+
+Snipers fall away sharply above about 8 SOL. 7 SOL may beat 5, but its sniper odds rest on 14 devs, and it would
+need about 9.5 SOL of funding. Test it after the first 5 SOL batch, with `python3 ml/devbuy.py` re-run first. Never
+buy above 8 SOL.
+
 ## Version 2 (2026-10-28)
 
 1. **Normal mode only, never Mayhem.** In Mayhem mode pump.fun's agent sells newly minted supply, so the price can
