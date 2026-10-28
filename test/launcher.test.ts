@@ -184,3 +184,19 @@ test('a ground "pump" address is used for the launch and only taken once the lau
   await runLaunch(no.deps, post, draft, 'x');
   assert.equal(taken, 1);
 });
+
+test('launches the observer has not read yet are read directly, and one linking the post blocks', async () => {
+  for (const [linked, unknown, expected] of [[0, 0, 'launched'], [1, 0, 'blocked'], [0, 1, 'blocked']] as const) {
+    const s = setup();
+    s.db.prepare("INSERT INTO coins (mint, symbol, quote, created_ts, meta_status, uri, total_supply, updated_at) VALUES ('P', 'X', 'SOL', ?, 'queued', 'https://ipfs.io/ipfs/x', 1e9, 0)").run(NOW - 3);
+    let asked = 0;
+    s.deps.resolvePending = async (launches, postId) => {
+      asked++;
+      assert.deepEqual([launches.map((l) => l.mint), postId], [['P'], post.postId]);
+      return { linked, unknown };
+    };
+    const r = await runLaunch(s.deps, post, draft, 'x');
+    assert.equal(r.status, expected);
+    assert.ok(asked >= 1);
+  }
+});

@@ -244,3 +244,12 @@ export function accountRecord(db: DatabaseSync, handle: string): { launches: num
     return null;
   }
 }
+
+/** Launches made since the post whose metadata the observer has not fetched yet, with their metadata URIs. */
+export function pendingLaunchUris(db: DatabaseSync, post: PostInfo, now: number): { mint: string; uri: string | null }[] {
+  return db
+    .prepare(
+      `SELECT mint, uri FROM coins WHERE created_ts >= ? AND quote = 'SOL' AND meta_status NOT IN ('done', 'failed')`,
+    )
+    .all(Math.max(now - 120, post.postedAt - 2)) as { mint: string; uri: string | null }[];
+}

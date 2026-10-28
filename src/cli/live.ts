@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from '../config.ts';
+import { candidateUrls, parseMeta } from '../market/metadata.ts';
 import { log } from '../log.ts';
 import { PLAYBOOK } from '../playbook.ts';
 import { loadBacktestCoins } from '../sim/backtest.ts';
@@ -158,6 +159,25 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
       early.delete(mint);
     },
     pause: (reason) => writeFileSync(KILL_FILE, `${new Date().toISOString()} ${reason}\n`),
+    resolvePending: async (launches, postId) => {
+      const read = async (uri: string | null): Promise<string | null | undefined> => {
+        if (!uri) return null;
+        for (const url of candidateUrls(uri, config.ipfsGateways).slice(0, 3)) {
+          try {
+            const res = await fetch(url, { signal: AbortSignal.timeout(3_000) });
+            if (res.ok) return parseMeta((await res.json()) as Record<string, unknown>).twitter;
+          } catch {
+            // the next gateway
+          }
+        }
+        return undefined;
+      };
+      const links = await Promise.all(launches.map((l) => read(l.uri)));
+      return {
+        linked: links.filter((t) => typeof t === 'string' && t.includes(postId)).length,
+        unknown: links.filter((t) => t === undefined).length,
+      };
+    },
     validateExit: (policy) => void new ExitEngine(policy, { landedAt: 0, slot: null }, ''),
     makeExit: (policy, landing) => {
       // Without a live feed (fork runs) only our coin's trades arrive, so a quiet coin must not look like a lost feed.

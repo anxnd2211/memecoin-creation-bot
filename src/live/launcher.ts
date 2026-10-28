@@ -3,7 +3,7 @@ import { Keypair } from '@solana/web3.js';
 import { CURVE_FEE_RATE, LAUNCH_VIRTUAL_SOL as LAUNCH_VSOL } from '../chain/curve.ts';
 import { exitFor, type Playbook } from '../playbook.ts';
 import type { ExitPolicy } from '../sim/simulate.ts';
-import { accountRecord, boardState, formatGates, launchBoard, type BoardState, type Limits } from './board.ts';
+import { accountRecord, boardState, formatGates, launchBoard, pendingLaunchUris, type BoardState, type Limits } from './board.ts';
 import { launchPnl, recordOutcome, recordPlan } from './dossier.ts';
 import type { CoinDraft, ExitDecision, LaunchFill, LiveTrade, Notifier, PostInfo, SellFill, Venue } from './types.ts';
 import { LaunchFailedError, NotLandedError } from './venue.ts';
@@ -53,6 +53,11 @@ export interface LaunchDeps {
    * not be sold, nothing new goes out until the owner has looked.
    */
   pause?: (reason: string) => void;
+  /**
+   * Fetches the metadata of launches the observer has not fetched yet and says how many link `postId` and how many
+   * could not be read; the board blocks on either.
+   */
+  resolvePending?: (launches: { mint: string; uri: string | null }[], postId: string) => Promise<{ linked: number; unknown: number }>;
   /** Throws if the exit engine cannot run this policy, checked before any SOL moves. */
   validateExit?: (policy: ExitPolicy) => void;
   /** A mint keypair's secret key ending in "pump" (src/live/vanity.ts), or null for a random address. */
@@ -80,8 +85,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export const NEAR_GRADUATION_VSOL = 105;
 
-/** How long the board waits for the metadata of launches made seconds ago before treating them as unknown. */
-export const PENDING_WAIT_MS = 6_000;
+/** How long the board waits for the observer to fetch the metadata of launches made seconds ago before fetching it. */
+export const PENDING_WAIT_MS = 3_000;
 
 /** Sell rounds before giving up and asking the owner to sell by hand; each round runs the venue's slippage ladder. */
 export const SELL_ROUNDS = [
@@ -160,7 +165,13 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
     const until = Date.now() + PENDING_WAIT_MS;
     for (;;) {
       const s = boardState(d.db, post, draft.symbol, d.now(), { balanceLamports: await balance(), killed: d.killed() });
-      if (!s.pendingLaunches || s.postLaunches || Date.now() >= until) return s;
+      if (!s.pendingLaunches || s.postLaunches) return s;
+      if (Date.now() >= until) {
+        // Still waiting on the observer: read those launches' metadata directly.
+        if (!d.resolvePending) return s;
+        const r = await d.resolvePending(pendingLaunchUris(d.db, post, d.now()), post.postId).catch(() => null);
+        return r ? { ...s, postLaunches: (s.postLaunches ?? 0) + r.linked, pendingLaunches: r.unknown } : s;
+      }
       await sleep(500);
     }
   };
