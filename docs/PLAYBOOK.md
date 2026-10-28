@@ -16,6 +16,8 @@ Version 2, plus three launch rules and a sell limit:
 3. **At least 10 minutes between our launches.**
 4. **Sell limit 10%:** the whole-bag sell fails rather than fill more than 10% under its quote. A failed sell is
    re-quoted and re-sent at once. Sells go through a protected route (a Jito bundle or Helius Sender).
+5. **Slow feed:** the flow exit runs while the feed is at most 3 seconds behind the chain; beyond that, or with the
+   lag unknown, the whole bag is sold at 15 seconds.
 
 The dev buy stays at 5 SOL; the evidence against going lower is below. The exit is unchanged.
 
@@ -34,6 +36,9 @@ each required to replicate in both halves of the hours:
 | v3 rules against v2, 5 SOL launches | earlier half +5.69 vs +5.06; later half +5.63 vs +3.89 |
 | v3 rules against v2, 3–5 SOL launches | earlier half +3.25 vs +2.94; later half +3.56 vs +3.17 |
 | Bag-value move between the sell decision and landing | under 2.5% for 95% of sells, under 8.2% for 99%; a 10% limit fails 0.5% |
+| Flow exit vs the 20 s timer by real delay, 713 launches at 5 SOL (slots are 0.213 s, not 0.4) | +0.22 at 0.4 s, +0.17 at 1–1.5 s, +0.12 at 2.5–3 s (all beyond noise), +0.05 at 5 s (noise) |
+| 15 s timer vs 20 s timer, same launches | 3.60 vs 3.49 SOL a launch |
+| Live shadow runs on the public feed (exit only, 3 SOL+ launches, no link rules) | 14 runs +3.45 (all profitable); 10 runs +2.55 |
 
 The sealed launches (22:35–23:09) had only 2 that met every v3 rule: not enough to confirm it yet.
 
@@ -155,7 +160,7 @@ rules, the figure would fall to about +2.06.
 | 0 | 2026-10-27 | Normal mode; 3 SOL dev buy; hold 20 s then sell everything | Round 1 of the exit backtest |
 | 1 | 2026-10-27 | Flow exit with a 20 s timer when the feed is slow; require a post link and a source website; pause after 3 dead launches | Round 2: dev-sell reactions modelled; launch traits measured |
 | 2 | 2026-10-28 | 5 SOL dev buy; launch within 2 min of the post and first on it; 5 s stall window; website optional; pump.fun IPFS metadata | Round 3: same-dev dev-buy comparison, post speed and order, top devs' sell styles replayed |
-| 3 | 2026-10-28 | Source website required (no promo sites); skip farmed accounts; 10 min between launches; 10% sell limit | Round 5: 334 design and context features tested for replication; sniping, dev-buy sentiment and slippage measured |
+| 3 | 2026-10-28 | Source website required (no promo sites); skip farmed accounts; 10 min between launches; 10% sell limit; flow exit up to 3 s of feed lag, else a 15 s timer | Round 5: 334 design and context features tested for replication; sniping, dev-buy sentiment and slippage measured; latency re-measured with 213 ms slots |
 
 ## Rules learned
 

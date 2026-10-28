@@ -27,8 +27,8 @@ if single:
     df['pnlV2'] = df.pnlAt5
 x = df[m]
 busy, dead = x[x.active].pnlV2.to_numpy(), x[~x.active].pnlV2.to_numpy()
-# A dead launch for us: the worst-case fees on 5 SOL, rent, network and priority fees.
-DEAD = -(5.0625 * 2 * 0.0095 / 1.0125 + 0.009 + 0.04)
+# A dead launch for us: the worst-case trading fees on 5 SOL, rent and tips.
+DEAD = -(5.0625 * 2 * 0.0095 / 1.0125 + 0.0093 + 0.002)
 rng = np.random.default_rng(7)
 print(f'{len(x)} recorded launches met the rules ({len(busy)} drew buyers); a dead launch of ours costs about {DEAD:.3f} SOL')
 print(f'{"our hit rate vs theirs":24} {"mean":>7} {"p05":>7} {"p25":>7} {"median":>7} {"p75":>7} {"P(loss)":>8} {"P(< -1)":>8}')

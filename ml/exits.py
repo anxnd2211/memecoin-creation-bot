@@ -25,8 +25,8 @@ SEAL = 1793140500  # 2026-10-27T22:35Z: launches from here on are kept for the f
 FEATURES = ['age', 'cumNet', 'net1', 'net2', 'net5', 'net10', 'net20', 'buy5', 'sell5', 'nbuy5', 'nsell5', 'buyers',
             'earlySold', 'earlyBuy', 'gain', 'drawdown', 'sincePeak', 'sinceBuy']
 STATIC = ['curveBuy', 'postAgeLog', 'j7', 'spam']
-DECIDE_FROM, DECIDE_TO, STEP = 3, 300, 2  # slots: 1.2 s to 120 s, every 0.8 s
-EXTEND_TO = 750  # slots: 300 s
+DECIDE_FROM, DECIDE_TO, STEP = 6, 563, 4  # slots: about 1.3 s to 120 s, every 0.85 s
+EXTEND_TO = 1400  # slots: about 300 s
 rng = np.random.default_rng(7)
 
 

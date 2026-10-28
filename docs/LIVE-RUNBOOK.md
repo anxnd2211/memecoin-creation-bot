@@ -22,8 +22,8 @@ you can afford to lose entirely.
 4. **The launch transaction:** `create_v2` (normal mode) plus a 5 SOL dev buy, simulated against mainnet first,
    then sent.
 5. **The exit manager watches the coin's trades live.** After at least 10 s, it sells the whole bag once other
-   wallets' net buying over 5 s is 0.5 SOL or less, and at 2 minutes at the latest. If the feed lags more than 2 s,
-   it sells at 20 s. The sell is limited to 10% below its quote and is re-quoted and retried if it fails.
+   wallets' net buying over 5 s is 0.5 SOL or less, and at 2 minutes at the latest. If the feed lags more than 3 s,
+   it sells at 15 s. If the curve nears completion (graduation), it sells at once. The sell is limited to 10% below its quote and is re-quoted and retried if it fails.
 6. **The result is recorded** in `our_launches`. Creator fees can be claimed with `/claim`.
 
 ## Before the session
@@ -70,8 +70,9 @@ npm run postmortem -- --mode live           # after the batch
 - **Launches meeting every v3 rule** (other devs, research hours): +5.6 SOL each in both research halves. On the
   sealed hour 22:35–23:46 UTC, never used in research: +6.62 on 4 launches.
 - **The exit on the sealed hour:** +0.89 SOL a launch better than what the recorded devs did (275 launches).
-- **A dead launch** costs about 0.15 SOL: 0.10 of trading fees on the 5 SOL buy and sell, 0.009 of rent, and the
-  tips. Successful 5 SOL devs land their launches with a 0.005 SOL Jito tip (60% of them) and almost no priority fee.
+- **A dead launch** costs about 0.11 SOL: 0.095 of trading fees on the 5 SOL buy and sell (the most a whole-bag sell
+  can lose), 0.009 of rent and 0.002 of tips. Successful 5 SOL devs land their launches with a 0.005 SOL Jito tip (60%
+  of them) and almost no priority fee; `SENDER_TIP_LAMPORTS` sets ours (default 0.001 SOL).
 - **A batch of 10** (`python3 ml/batch.py 10 single`, replays of single-wallet launches that met the rules):
 
   | Our hit rate vs theirs | Typical total | 5th percentile | Chance of a loss |

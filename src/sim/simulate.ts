@@ -10,8 +10,11 @@ import { PHANTOM, type FlowTrade } from './flow.ts';
  * the real one, or how others react to a partial sell of ours.
  */
 
-/** Average Solana slot time. */
-export const SLOT_SEC = 0.4;
+/**
+ * Average Solana slot time on mainnet: about 213 ms, measured from block times over 20,000 slots and from the live
+ * feed on 2026-10-28 (the nominal 400 ms is long out of date).
+ */
+export const SLOT_SEC = 0.213;
 
 export interface ExitPolicy {
   name: string;

@@ -87,10 +87,12 @@ export const config = {
    */
   senderUrl: optional('SENDER_URL'),
   /**
-   * Tip per transaction sent through Sender, in lamports. Sender takes 5,000 and up; tips under 1,000,000 (0.001 SOL)
-   * are sent best-effort on fewer paths (https://www.helius.dev/docs/sending-transactions/sender). Capped at 0.05 SOL.
+   * Tip per transaction sent through Sender, in lamports (default 0.001 SOL, the least Sender's priority routing
+   * takes). Sender takes 5,000 and up; tips under 1,000,000 are sent best-effort on fewer paths
+   * (https://www.helius.dev/docs/sending-transactions/sender). Successful 5 SOL devs tipped a median 0.005 SOL (Jito)
+   * on their launches on 2026-10-28. Capped at 0.05 SOL.
    */
-  senderTipLamports: int('SENDER_TIP_LAMPORTS', 200_000, 5_000, 50_000_000),
+  senderTipLamports: int('SENDER_TIP_LAMPORTS', 1_000_000, 5_000, 50_000_000),
 };
 
 /** Strips query strings (API keys) from URLs before they are logged. */

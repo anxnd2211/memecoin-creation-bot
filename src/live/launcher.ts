@@ -61,6 +61,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export const NEAR_GRADUATION_VSOL = 105;
 
+/** How long the board waits for the metadata of launches made seconds ago before treating them as unknown. */
+export const PENDING_WAIT_MS = 6_000;
+
 /** An ipfs.io URI the length of a real one (a 59-character CIDv1), for the preflight before the upload finishes. */
 const PLACEHOLDER_URI = `https://ipfs.io/ipfs/bafkrei${'a'.repeat(52)}`;
 
@@ -73,7 +76,19 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
       return null;
     }
   };
-  const state = async (): Promise<BoardState> => boardState(d.db, post, draft.symbol, d.now(), { balanceLamports: await balance(), killed: d.killed() });
+  /**
+   * The board's state. Launches made in the last few seconds may not have their metadata yet, so whether one links
+   * this post is unknown; the observer fetches it within seconds, so wait for it (up to `PENDING_WAIT_MS`) rather than
+   * block on it.
+   */
+  const state = async (): Promise<BoardState> => {
+    const until = Date.now() + PENDING_WAIT_MS;
+    for (;;) {
+      const s = boardState(d.db, post, draft.symbol, d.now(), { balanceLamports: await balance(), killed: d.killed() });
+      if (!s.pendingLaunches || s.postLaunches || Date.now() >= until) return s;
+      await sleep(500);
+    }
+  };
   const compliance = d.checkCompliance(draft, post);
 
   // 1. The board, before simulating or bothering the owner.

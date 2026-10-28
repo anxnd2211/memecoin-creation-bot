@@ -1,7 +1,7 @@
 """Launch paths on a slot grid, for exit research (from npm run export-paths).
 
 Until we sell the whole bag our position does not move the curve, so each launch has one price path whatever exit we
-pick. For every slot s (0.4 s) up to the horizon this builds what selling then would make, and the market state an
+pick. For every slot s (about 0.21 s) up to the horizon this builds what selling then would make, and the market state an
 exit could see at that moment. A decision at slot s lands before the first trade at slot s + LATENCY or later, as in
 the replay (src/sim/simulate.ts).
 """
@@ -10,11 +10,16 @@ import json
 import numpy as np
 import pandas as pd
 
-SLOT = 0.4
+SLOT = 0.213  # mainnet slot time, measured 2026-10-28
 LATENCY = 2
-HORIZON = 750  # slots: 300 s
+HORIZON = 1400  # slots: about 300 s
 CREATOR_FEE_ON_SELL = 0.003 / (1 - 0.0125)  # creator fee earned on our own sell, per SOL received
 COSTS = 0.02 + 0.002  # launch rent and fees, one sell
+
+
+def slots(sec: float) -> int:
+    """Slots in `sec` seconds."""
+    return max(1, round(sec / SLOT))
 
 
 def window(x: np.ndarray, n: int) -> np.ndarray:
@@ -83,8 +88,10 @@ def build(p: dict) -> dict:
         X=dict(
             age=age,
             cumNet=np.cumsum(net),
-            net1=window(net, 3), net2=window(net, 5), net5=window(net, 13), net10=window(net, 25), net20=window(net, 50),
-            buy5=window(buy_sol, 13), sell5=window(sell_sol, 13), nbuy5=window(n_buy, 13), nsell5=window(n_sell, 13),
+            net1=window(net, slots(1)), net2=window(net, slots(2)), net5=window(net, slots(5)),
+            net10=window(net, slots(10)), net20=window(net, slots(20)),
+            buy5=window(buy_sol, slots(5)), sell5=window(sell_sol, slots(5)), nbuy5=window(n_buy, slots(5)),
+            nsell5=window(n_sell, slots(5)),
             buyers=buyers,
             earlySold=np.cumsum(early_sell) / np.maximum(np.cumsum(early_buy), 1e-9),
             earlyBuy=np.cumsum(early_buy),
