@@ -30,7 +30,7 @@ export interface PinOptions {
    * on the IPFS network even when one public gateway rate-limits this machine.
    */
   checkGateways?: string[];
-  /** How long to keep trying the gateway, in ms. */
+  /** How long to keep trying the gateways, in ms (default 30 s: a fresh CID took 15 s to show up on 2026-10-28). */
   verifyTimeoutMs?: number;
 }
 
@@ -87,7 +87,7 @@ export async function pinMetadata(draft: CoinDraft, o: PinOptions): Promise<stri
 
   // The launch waits until the IPFS network serves the metadata back, as sniper bots will fetch it.
   const checks = [...new Set([gateway, ...(o.checkGateways ?? [])])];
-  const deadline = Date.now() + (o.verifyTimeoutMs ?? 20_000);
+  const deadline = Date.now() + (o.verifyTimeoutMs ?? 30_000);
   let last = '';
   while (Date.now() < deadline) {
     const answers = await Promise.allSettled(
