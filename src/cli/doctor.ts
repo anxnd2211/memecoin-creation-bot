@@ -6,6 +6,7 @@ import { PLAYBOOK } from '../playbook.ts';
 import { DEFAULT_LIMITS } from '../live/board.ts';
 import { LiveFeed } from '../live/stream.ts';
 import { vanityLeft } from '../live/vanity.ts';
+import { withFees } from '../live/devbuy.ts';
 import { pinMetadata } from '../live/ipfs.ts';
 import { launchPublicKey } from '../live/venue.ts';
 
@@ -134,8 +135,18 @@ if (wallet) {
   }
   try {
     const sol = (await conn.getBalance(wallet)) / 1e9;
-    const need = PLAYBOOK.devBuySol + DEFAULT_LIMITS.reserveSol;
-    say(sol >= need ? 'OK' : 'FAIL', 'balance', `${wallet.toBase58()} holds ${sol.toFixed(4)} SOL (one launch needs ${need.toFixed(4)}; a batch of 10 about 8)`);
+    const need5 = PLAYBOOK.devBuySol + DEFAULT_LIMITS.reserveSol;
+    const need2 = withFees(2) + DEFAULT_LIMITS.reserveSol;
+    say(
+      sol >= need5 ? 'OK' : sol >= need2 ? 'WARN' : 'FAIL',
+      'balance',
+      `${wallet.toBase58()} holds ${sol.toFixed(4)} SOL: ` +
+        (sol >= need5
+          ? `enough for the playbook's 5 SOL launches (${need5.toFixed(2)} each; a batch of 10 wants about 8)`
+          : sol >= need2
+            ? `start with --dev-buy auto or --dev-buy 2 (2 SOL launches need ${need2.toFixed(2)}; 5 SOL needs ${need5.toFixed(2)})`
+            : `too little for any launch (2 SOL launches need ${need2.toFixed(2)})`),
+    );
   } catch (e) {
     say('FAIL', 'balance', `could not read: ${(e as Error).message}`);
   }
