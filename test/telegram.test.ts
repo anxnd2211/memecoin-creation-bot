@@ -174,7 +174,7 @@ test('commands parse into typed objects', () => {
   assert.deepEqual(parseCommand('/start'), { ok: true, command: { kind: 'help' } });
   assert.equal(parseCommand('hello'), null);
   assert.equal(parseCommand(''), null);
-  assert.match((parseCommand('/launch https://x.com/a/status/507185938620219395 | B') as { error: string }).error, /at least/);
+  assert.match((parseCommand('/launch https://x.com/a/status/507185938620219395 | B') as { error: string }).error, /needs/);
   assert.match((parseCommand('/launch https://x.com/Interior | B | Bear') as { error: string }).error, /not to a post/);
   assert.match((parseCommand('/launch https://x.com/a/status/507185938620219395 |  | Bear') as { error: string }).error, /ticker/);
   assert.match((parseCommand('/sell') as { error: string }).error, /unknown command \/sell/);
@@ -434,4 +434,16 @@ test('redactToken removes the token and anything shaped like one', () => {
   assert.equal(redactToken(`GET https://api.telegram.org/bot${TOKEN}/getMe failed`, TOKEN), 'GET https://api.telegram.org/bot<token>/getMe failed');
   assert.equal(redactToken('bot987654321:ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ/x'), 'bot<token>/x');
   assert.equal(redactToken('nothing secret here'), 'nothing secret here');
+});
+
+test('a bare /launch with only the post leaves the ticker and name to be drafted', async () => {
+  const { parseCommand } = await import('../src/live/telegram.ts');
+  const r = parseCommand('/launch https://x.com/news/status/1983000000000000000');
+  assert.ok(r && r.ok && r.command.kind === 'launch');
+  if (r && r.ok && r.command.kind === 'launch') {
+    assert.equal(r.command.ticker, '');
+    assert.equal(r.command.name, '');
+  }
+  const half = parseCommand('/launch https://x.com/news/status/1983000000000000000 | CAPY');
+  assert.ok(half && !half.ok);
 });

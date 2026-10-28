@@ -24,6 +24,7 @@ const CAPTION_MAX = 1024;
 export const USAGE = [
   'Commands:',
   '/launch <post url> | <TICKER> | <Name> | <source url> | <description>',
+  '  or just /launch <post url> to have the ticker and name drafted from the post',
   '  attach the coin image as a photo with the command as its caption (or reply to a photo);',
   '  source url and description are optional',
   '/status  what the bot is doing',
@@ -38,8 +39,9 @@ export type Command =
       kind: 'launch';
       /** The post's canonical link (x.com/<account>/status/<id>). */
       postUrl: string;
-      /** As typed, a leading $ dropped. */
+      /** As typed, a leading $ dropped; empty when the launcher should draft it from the post. */
       ticker: string;
+      /** Empty when the launcher should draft it from the post. */
       name: string;
       sourceUrl: string | null;
       description: string | null;
@@ -90,12 +92,15 @@ export function parseCommand(text: string): { ok: true; command: Command } | { o
         rest = rest.slice(rest.indexOf('|') + 1);
       }
       parts.push(rest.trim());
-      if (parts.length < 3) return { ok: false, error: '/launch needs at least: <post url> | <TICKER> | <Name>' };
+      // The post alone: the launcher drafts the ticker and name from the post's text (src/live/autodraft.ts).
+      if (parts.length === 1 && parts[0]) parts.push('', '');
+      if (parts.length < 3) return { ok: false, error: '/launch needs: <post url>, or <post url> | <TICKER> | <Name>' };
       const [post, rawTicker, coinName, source = '', description = ''] = parts as [string, string, string, ...string[]];
+      const auto = parts.length === 3 && !rawTicker.trim() && !coinName.trim();
       const ticker = rawTicker.replace(/^\$/, '').trim();
       if (!post) return { ok: false, error: '/launch: the post url is missing' };
-      if (!ticker) return { ok: false, error: '/launch: the ticker is missing' };
-      if (!coinName) return { ok: false, error: '/launch: the name is missing' };
+      if (!ticker && !auto) return { ok: false, error: '/launch: the ticker is missing' };
+      if (!coinName && !auto) return { ok: false, error: '/launch: the name is missing' };
       let postUrl: string;
       try {
         postUrl = parsePost(post).url;

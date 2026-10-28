@@ -282,7 +282,14 @@ async function liveRun(): Promise<void> {
     } else if (c.kind === 'launch') {
       try {
         const post = await fetchPost(c.postUrl);
-        const draft = buildDraft(post, { name: c.name, ticker: c.ticker, sourceUrl: c.sourceUrl, description: c.description, image: m.image });
+        let { name, ticker } = c;
+        if (!name || !ticker) {
+          const auto = autoDraft(post.text);
+          if (!auto) throw new Error('could not draft a ticker and name from the post: send /launch <post url> | <TICKER> | <Name>');
+          name ||= auto.name;
+          ticker ||= auto.symbol;
+        }
+        const draft = buildDraft(post, { name, ticker, sourceUrl: c.sourceUrl, description: c.description, image: m.image });
         await launch(post, draft, post.text ?? c.name);
       } catch (e) {
         const problems = e instanceof DesignError ? e.problems.join('; ') : (e as Error).message;
