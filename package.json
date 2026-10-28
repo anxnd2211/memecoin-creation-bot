@@ -26,7 +26,8 @@
     "paper-fork": "node --disable-warning=ExperimentalWarning src/cli/paperFork.ts",
     "shadow": "node --disable-warning=ExperimentalWarning src/cli/shadow.ts",
     "live": "node --disable-warning=ExperimentalWarning src/cli/live.ts",
-    "grind": "node --disable-warning=ExperimentalWarning src/cli/grind.ts"
+    "grind": "node --disable-warning=ExperimentalWarning src/cli/grind.ts",
+    "doctor": "node --disable-warning=ExperimentalWarning src/cli/doctor.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

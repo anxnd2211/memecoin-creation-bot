@@ -46,6 +46,7 @@ Never paste a key, token or seed phrase into chat. Put them only in `.env`, whic
 Each step must pass before the next:
 
 ```bash
+npm run doctor                              # every key, service, balance and the feed's lag checked; no secrets printed
 npm test                                    # all tests pass
 npm run grind -- --count 20                 # mint addresses ending in "pump", like the site's (about 2-3 min each)
 npm run live -- --mode fork                 # one launch end to end on the local pump.fun copy, a real launch's traders replayed
