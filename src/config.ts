@@ -65,7 +65,8 @@ export const config = {
   metadataSampleRate: num('METADATA_SAMPLE_RATE', 1),
   ipfsGateways: list(
     'IPFS_GATEWAYS',
-    'https://ipfs.io/ipfs/,https://dweb.link/ipfs/,https://gateway.pinata.cloud/ipfs/,https://4everland.io/ipfs/,https://ipfs.filebase.io/ipfs/',
+    // Filebase and 4everland first: ipfs.io, dweb.link and Pinata's gateway rate-limit a machine fetching every launch.
+    'https://ipfs.filebase.io/ipfs/,https://4everland.io/ipfs/,https://ipfs.io/ipfs/,https://dweb.link/ipfs/,https://gateway.pinata.cloud/ipfs/',
   ),
 
   jupiterApiKey: process.env.JUPITER_API_KEY?.trim() || null,

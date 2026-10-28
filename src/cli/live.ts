@@ -184,7 +184,7 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
       if (mode !== 'live') return 'https://ipfs.io/ipfs/dry-run-not-uploaded';
       const jwt = process.env.PINATA_JWT;
       if (!jwt) throw new Error('PINATA_JWT is not set: metadata cannot be uploaded');
-      return pinMetadata(draft, { jwt });
+      return pinMetadata(draft, { jwt, checkGateways: config.ipfsGateways });
     },
     prewatch: (mint) => {
       if (!feed) return;
@@ -215,17 +215,15 @@ function baseDeps(venue: Venue, notifier: Notifier, feed: LiveFeed | null): Laun
       }
     },
     resolvePending: async (launches, postId) => {
+      // Every gateway at once, the first good answer wins: public gateways rate-limit an IP that also runs the observer.
       const read = async (uri: string | null): Promise<string | null | undefined> => {
         if (!uri) return null;
-        for (const url of candidateUrls(uri, config.ipfsGateways).slice(0, 3)) {
-          try {
-            const res = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-            if (res.ok) return parseMeta((await res.json()) as Record<string, unknown>).twitter;
-          } catch {
-            // the next gateway
-          }
-        }
-        return undefined;
+        const tries = candidateUrls(uri, config.ipfsGateways).map(async (url) => {
+          const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return parseMeta((await res.json()) as Record<string, unknown>).twitter;
+        });
+        return Promise.any(tries).catch(() => undefined);
       };
       const links = await Promise.all(launches.map((l) => read(l.uri)));
       return {

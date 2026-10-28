@@ -23,8 +23,13 @@ export class PinError extends Error {
 export interface PinOptions {
   jwt: string;
   fetchImpl?: typeof fetch;
-  /** Gateway the metadata must load from before the launch (the URI's host). */
+  /** Gateway the metadata URI names (the host sniper bots see). */
   gateway?: string;
+  /**
+   * Gateways to check the metadata loads from, all at once (the first good answer counts): it proves the content is
+   * on the IPFS network even when one public gateway rate-limits this machine.
+   */
+  checkGateways?: string[];
   /** How long to keep trying the gateway, in ms. */
   verifyTimeoutMs?: number;
 }
@@ -80,23 +85,25 @@ export async function pinMetadata(draft: CoinDraft, o: PinOptions): Promise<stri
   );
   const uri = `${gateway}${metaCid}`;
 
-  // The launch waits until the public gateway serves the metadata back, as sniper bots will fetch it.
+  // The launch waits until the IPFS network serves the metadata back, as sniper bots will fetch it.
+  const checks = [...new Set([gateway, ...(o.checkGateways ?? [])])];
   const deadline = Date.now() + (o.verifyTimeoutMs ?? 20_000);
   let last = '';
   while (Date.now() < deadline) {
-    try {
-      const res = await f(uri, { signal: AbortSignal.timeout(5_000) });
-      if (res.ok) {
-        const got = (await res.json()) as { name?: string; symbol?: string };
-        if (got.name === draft.name && got.symbol === draft.symbol) return uri;
-        throw new PinError(`the gateway served different metadata for ${metaCid}`);
-      }
-      last = `HTTP ${res.status}`;
-    } catch (e) {
-      if (e instanceof PinError) throw e;
-      last = (e as Error).message;
+    const answers = await Promise.allSettled(
+      checks.map(async (g) => {
+        const res = await f(`${g}${metaCid}`, { signal: AbortSignal.timeout(5_000) });
+        if (!res.ok) throw new Error(`${new URL(g).host} HTTP ${res.status}`);
+        return (await res.json()) as { name?: string; symbol?: string };
+      }),
+    );
+    const served = answers.flatMap((a) => (a.status === 'fulfilled' ? [a.value] : []));
+    if (served.some((got) => got.name !== draft.name || got.symbol !== draft.symbol)) {
+      throw new PinError(`a gateway served different metadata for ${metaCid}`);
     }
+    if (served.length) return uri;
+    last = answers.map((a) => (a.status === 'rejected' ? (a.reason as Error).message : '')).filter(Boolean).join('; ');
     await new Promise((r) => setTimeout(r, 1_000));
   }
-  throw new PinError(`pinned as ${metaCid}, but ${gateway} did not serve it in time (${last}); the launch is blocked`);
+  throw new PinError(`pinned as ${metaCid}, but no gateway served it in time (${last}); the launch is blocked`);
 }

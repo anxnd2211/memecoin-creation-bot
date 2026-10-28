@@ -44,8 +44,16 @@ test('pins image and metadata, waits for the public gateway, returns an ipfs.io 
   assert.equal((calls[0]!.init!.headers as Record<string, string>).authorization, 'Bearer j');
 });
 
+test('the metadata counts as served when any check gateway serves it, even if ipfs.io rate-limits this machine', async () => {
+  const { f } = fakePinata({ gatewayFails: 99 });
+  const g = (async (url: string, init?: RequestInit) =>
+    url.startsWith('https://ipfs.filebase.io/') ? new Response(JSON.stringify({ name: draft.name, symbol: draft.symbol })) : f(url, init)) as typeof fetch;
+  const uri = await pinMetadata(draft, { jwt: 'j', fetchImpl: g, checkGateways: ['https://ipfs.filebase.io/ipfs/'], verifyTimeoutMs: 3_000 });
+  assert.equal(uri, `https://ipfs.io/ipfs/${META}`);
+});
+
 test('a failed pin, a gateway that never serves it, or different metadata all block the launch', async () => {
   await assert.rejects(pinMetadata(draft, { jwt: 'j', fetchImpl: fakePinata({ pinStatus: 401 }).f }), PinError);
-  await assert.rejects(pinMetadata(draft, { jwt: 'j', fetchImpl: fakePinata({ gatewayFails: 99 }).f, verifyTimeoutMs: 1_500 }), /did not serve it in time/);
+  await assert.rejects(pinMetadata(draft, { jwt: 'j', fetchImpl: fakePinata({ gatewayFails: 99 }).f, verifyTimeoutMs: 1_500 }), /did not serve it in time|no gateway served it in time/);
   await assert.rejects(pinMetadata(draft, { jwt: 'j', fetchImpl: fakePinata({ metaName: 'Other' }).f }), /different metadata/);
 });
