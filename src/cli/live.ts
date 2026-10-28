@@ -319,18 +319,6 @@ async function liveRun(): Promise<void> {
   };
 
   // Posts from watched accounts become launch cards with a drafted name, ticker and the post's image.
-  const bearer = process.env.X_BEARER_TOKEN;
-  let watcher: XWatcher | null = null;
-  if (bearer && existsSync('data/watchlist.json')) {
-    const handles = (JSON.parse(readFileSync('data/watchlist.json', 'utf8')) as { accounts: { handle: string }[] }).accounts.map((a) => a.handle);
-    watcher = new XWatcher({
-      bearer,
-      handles,
-      onStatus: (s) => log.info(s),
-      onPost: (c) => void onCandidate(c),
-    });
-    void watcher.start().catch((e) => void tg.send(`X watcher stopped: ${(e as Error).message}`));
-  }
   const onCandidate = async (c: XPostCandidate) => {
     if (busy || killed()) return;
     const d = autoDraft(c.text);
@@ -357,6 +345,18 @@ async function liveRun(): Promise<void> {
     }
   };
 
+  const bearer = process.env.X_BEARER_TOKEN;
+  let watcher: XWatcher | null = null;
+  if (bearer && existsSync('data/watchlist.json')) {
+    const handles = (JSON.parse(readFileSync('data/watchlist.json', 'utf8')) as { accounts: { handle: string }[] }).accounts.map((a) => a.handle);
+    watcher = new XWatcher({
+      bearer,
+      handles,
+      onStatus: (s) => log.info(s),
+      onPost: (c) => void onCandidate(c),
+    });
+    void watcher.start().catch((e) => void tg.send(`X watcher stopped: ${(e as Error).message}`));
+  }
   const stop = new AbortController();
   // A launch in flight finishes (its sell and its record) before the feed, Telegram and the database close.
   const shutdown = () => {
