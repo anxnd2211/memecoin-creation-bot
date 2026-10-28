@@ -4,6 +4,26 @@ This is the checklist for the first live session. Every launch uses the owner's 
 Approve on Telegram; the bot never launches on its own. Not financial advice: only fund the launch wallet with SOL
 you can afford to lose entirely.
 
+## Start here
+
+1. **Accounts and keys** (about 30 minutes; the table under "Before the session" has the steps). Put each in `.env`,
+   never in chat:
+   - a Helius key (Developer plan)
+   - a Telegram bot token and your chat id
+   - a Pinata JWT
+   - a new launch wallet, funded with about 8 SOL
+   - optionally, an X API bearer token
+2. **Two terminals:**
+   - `caffeinate -i npm run observe`, left running for the whole session
+   - `npm run doctor`, until it shows no FAIL
+3. **Rehearse:**
+   - `npm run live -- --mode fork`: a full launch on the local pump.fun copy
+   - `npm run live -- --mode dry`: real feed and Telegram, nothing sent; try `/launch <post url>` with a photo and
+     approve the card
+4. **Go live:** `npm run live -- --mode live`. Launch one coin, watch it sell, check the wallet, then continue.
+   `/kill` stops everything.
+5. **After the batch:** `npm run postmortem -- --mode live`.
+
 ## What the bot does on each launch (playbook v3)
 
 1. **A candidate post arrives.** The X watcher streams it from a watched account, or you send it yourself as a
