@@ -22,6 +22,7 @@ import {
 import { getTransactionDecoder, type Address } from '@solana/kit';
 import { FailedTransactionMetadata } from 'litesvm';
 import {
+  OnlinePumpSdk,
   GLOBAL_PDA,
   GLOBAL_VOLUME_ACCUMULATOR_PDA,
   MAYHEM_PROGRAM_ID,
@@ -1420,6 +1421,30 @@ export class MainnetVenue implements Venue {
     ]);
     const floor = rentExempt(state.rent, 0);
     return BigInt(lamports) > floor ? BigInt(lamports) - floor : 0n;
+  }
+
+  /**
+   * Moves the creator fees waiting in the creator vault to the wallet, with pump.fun's own collect instruction. The
+   * transaction is simulated first; a dry venue stops there. Returns null when there is less than `minLamports` to
+   * claim (a claim costs a network fee).
+   */
+  async claimCreatorFees(minLamports = 2_000_000n): Promise<{ signature: string | null; lamports: bigint } | null> {
+    const waiting = await this.creatorVaultLamports();
+    if (waiting < minLamports) return null;
+    const ixs = await new OnlinePumpSdk(this.connection).collectCoinCreatorFeeInstructions(this.devKey, this.devKey);
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('confirmed');
+    const tx = new VersionedTransaction(
+      new TransactionMessage({ payerKey: this.devKey, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message(),
+    );
+    const sim = await this.connection.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true });
+    if (sim.value.err) {
+      throw new PreflightError(`creator fee claim would fail: ${JSON.stringify(sim.value.err)}`, sim.value.logs ?? []);
+    }
+    if (this.mode !== 'live') return { signature: null, lamports: waiting };
+    tx.sign([this.requireSigner()]);
+    const landed = await this.sendAndConfirm(tx, lastValidBlockHeight, 'creator fee claim');
+    if (landed.err) throw new Error(`creator fee claim ${landed.signature} failed: ${JSON.stringify(landed.err)}`);
+    return { signature: landed.signature, lamports: waiting };
   }
 }
 

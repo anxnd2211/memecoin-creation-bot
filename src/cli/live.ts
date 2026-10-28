@@ -11,6 +11,7 @@ import { DesignError, buildDraft, checkCompliance, fetchPost, parsePost, sniffIm
 import { ExitEngine } from '../live/exit.ts';
 import { replayOnFork } from '../live/forkReplay.ts';
 import { pinMetadata } from '../live/ipfs.ts';
+import { sellLeftoverBags } from '../live/recover.ts';
 import { runLaunch, type LaunchDeps } from '../live/launcher.ts';
 import { LiveFeed } from '../live/stream.ts';
 import { TelegramNotifier, USAGE, type CommandMessage } from '../live/telegram.ts';
@@ -165,6 +166,14 @@ async function liveRun(): Promise<void> {
   feed.start();
   const deps = baseDeps(venue, tg, feed);
   let busy = false;
+  process.on('unhandledRejection', (e) => {
+    log.error('unhandled rejection', { err: (e as Error)?.message ?? String(e) });
+    void tg.send(`Internal error (the launcher keeps running): ${(e as Error)?.message ?? String(e)}`);
+  });
+  // A bag left by an earlier run (a crash or restart between a launch and its sell) is sold before anything else.
+  const leftover = await sellLeftoverBags(db, venue, tg, PLAYBOOK);
+  if (leftover.failed.length) await tg.send(`${leftover.failed.length} leftover bag(s) still held: launching is paused until they are sold.`);
+  if (leftover.failed.length) writeFileSync(KILL_FILE, `leftover bags unsold at start: ${leftover.failed.join(', ')}\n`);
   const balance = await venue.balanceLamports().catch(() => null);
   await tg.send(
     `Launcher started in ${mode} mode, playbook v${PLAYBOOK.version}. Wallet ${venue.dev}: ` +
@@ -201,7 +210,20 @@ async function liveRun(): Promise<void> {
       const ours = db.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(pnl_sol), 0) AS pnl FROM our_launches WHERE mode = ? AND created_ts >= ?`).get(mode, now() - (now() % 86400)) as { n: number; pnl: number };
       await tg.send(`${mode} mode, ${busy ? 'launch in progress' : 'idle'}; kill switch ${killed() ? 'ON' : 'off'}; feed lag ${lag === null ? 'unknown' : `${lag.toFixed(1)} s`}; today ${ours.n} launches, ${ours.pnl.toFixed(4)} SOL.`);
     } else if (c.kind === 'claim') {
-      await tg.send('Creator fees are claimed from the pump.fun site or a wallet for now (the vault is the creator vault of this wallet).');
+      if (!(venue instanceof MainnetVenue)) {
+        await tg.send('Nothing to claim in this mode.');
+        return;
+      }
+      try {
+        const r = await venue.claimCreatorFees();
+        await tg.send(
+          r === null
+            ? 'Less than 0.002 SOL of creator fees waiting: not worth a claim yet.'
+            : `${r.signature ? 'Claimed' : 'Would claim (dry run)'} ${(Number(r.lamports) / 1e9).toFixed(4)} SOL of creator fees${r.signature ? `: ${r.signature}` : ''}.`,
+        );
+      } catch (e) {
+        await tg.send(`Creator fee claim failed: ${(e as Error).message}`);
+      }
     } else if (c.kind === 'launch') {
       try {
         const post = await fetchPost(c.postUrl);
