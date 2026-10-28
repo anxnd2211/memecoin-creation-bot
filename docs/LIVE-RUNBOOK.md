@@ -36,7 +36,8 @@ you can afford to lose entirely.
 | Telegram bot | In Telegram, message @BotFather, send `/newbot`, copy the token. Send your new bot any message, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser and copy `message.chat.id` | `.env`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
 | Launch wallet | A new wallet used only for launches. With the Solana CLI: `solana-keygen new -o ~/.config/memecoin/launch.json`, then `chmod 600` that file | `.env`: `LAUNCH_KEYPAIR_PATH` |
 | Fund it | About 8 SOL (5.06 dev buy, reused each launch, plus fees, rent and a reserve) | — |
-| Optional: X API | console.x.com, pay-per-use, bearer token. Enables the X watcher; without it, send posts by hand | `.env`: `X_BEARER_TOKEN` |
+| Pinata (metadata hosting) | pinata.cloud, free plan, then API Keys, New Key with the pinning scopes, copy the **JWT**. pump.fun's own upload sits behind a Cloudflare bot check, which the bot does not work around. Metadata is pinned on your account and linked as `https://ipfs.io/ipfs/<cid>`, the way pump.fun's site links it | `.env`: `PINATA_JWT` |
+| Optional: X API | console.x.com, pay-per-use, bearer token. Enables the X watcher: a new post from one of the 40 watched accounts becomes a ready launch card within seconds. Without it, send posts by hand | `.env`: `X_BEARER_TOKEN` |
 
 Never paste a key, token or seed phrase into chat. Put them only in `.env`, which git ignores.
 
@@ -46,6 +47,7 @@ Each step must pass before the next:
 
 ```bash
 npm test                                    # all tests pass
+npm run live -- --mode fork                 # one launch end to end on the local pump.fun copy, a real launch's traders replayed
 npm run shadow -- --minutes 30              # the exit manager live on other devs' 5 SOL launches
 npm run live -- --mode dry                  # real feed, real Telegram, launches simulated against mainnet, nothing sent
 npm run live -- --mode live                 # real launches, each one approved by you on Telegram
@@ -68,6 +70,16 @@ npm run postmortem -- --mode live           # after the batch
 - **Launches meeting every v3 rule** (other devs, research hours): +5.6 SOL each in both research halves. On the
   sealed hour 22:35–23:46 UTC, never used in research: +6.62 on 4 launches.
 - **The exit on the sealed hour:** +0.89 SOL a launch better than what the recorded devs did (275 launches).
-- **A dead launch** costs about 0.12 SOL: fees, rent and the tip.
+- **A dead launch** costs about 0.15 SOL: 0.10 of trading fees on the 5 SOL buy and sell, 0.009 of rent, and the
+  tips. Successful 5 SOL devs land their launches with a 0.005 SOL Jito tip (60% of them) and almost no priority fee.
+- **A batch of 10** (`python3 ml/batch.py 10 single`, replays of single-wallet launches that met the rules):
+
+  | Our hit rate vs theirs | Typical total | 5th percentile | Chance of a loss |
+  | --- | --- | --- | --- |
+  | Same as theirs | +35 SOL | +20 | 0% |
+  | Half of theirs | +19 SOL | +6 | 0.1% |
+  | A quarter of theirs | +10.5 SOL | +1 | 2.3% |
+
+  These replay other devs' coins, timing and buyers. They are what the strategy did, not what it will do.
 - **The unknown is our own hit rate.** Our coins, our timing and our wallet's record decide it. The first batch of
   10 measures it, and the post-mortem says where any gap comes from.
