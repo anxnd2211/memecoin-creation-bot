@@ -8,6 +8,7 @@ import { awayFromGaps, feedGaps, loadBacktestCoins } from '../sim/backtest.ts';
 import { PHANTOM } from '../sim/flow.ts';
 import { RECORDED_DEV } from '../sim/policies.ts';
 import { DEFAULT_SIM, SLOT_SEC, simulate } from '../sim/simulate.ts';
+import { bundledSol, copiedMints, createSlotReach, fakeDemand } from '../sim/demand.ts';
 import { launchTool, WAVE_SEC, xLinkKind } from '../sim/traits.ts';
 import { tweetTs, xHandle } from '../intel/xlinks.ts';
 
@@ -88,6 +89,10 @@ for (const r of all) {
   if (k) byTicker.set(k, [...(byTicker.get(k) ?? []), r]);
   byDev.set(r.dev, [...(byDev.get(r.dev) ?? []), r]);
 }
+
+// Fake demand (src/sim/demand.ts): copy launches and create-slot bundles, so the model scripts can leave them out.
+const reach = createSlotReach(coins);
+const copied = copiedMints(all.map((r) => [r.mint, r.uri]));
 
 mkdirSync(dirname(out), { recursive: true });
 const lines: string[] = [];
@@ -177,6 +182,9 @@ for (const c of coins) {
       devPriorMayhem: prior.filter((x) => x.is_mayhem).length,
       devLastLaunchAgoSec: prior.length ? c.createdTs - prior.at(-1)!.ts : null,
       hourUtc: new Date(c.createdTs * 1000).getUTCHours(),
+      copied: copied.has(c.mint),
+      bundledSol: bundledSol(c, reach),
+      fakeDemand: fakeDemand(c, reach, copied),
       // What it drew.
       outsideBuy1s: outsideBuy(1.2),
       outsideBuy3s: outsideBuy(3),

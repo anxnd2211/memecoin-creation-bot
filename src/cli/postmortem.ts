@@ -4,6 +4,7 @@ import { config } from '../config.ts';
 import { PLAYBOOK, matchesPlaybook } from '../playbook.ts';
 import { postMortem, type Expectation, type LaunchOutcome } from '../postmortem.ts';
 import { awayFromGaps, feedGaps, loadBacktestCoins, runPolicy, type BacktestCoin } from '../sim/backtest.ts';
+import { copiedMints, createSlotReach, fakeDemand } from '../sim/demand.ts';
 import { RECORDED_DEV, policyGrid } from '../sim/policies.ts';
 import { DEFAULT_SIM } from '../sim/simulate.ts';
 import { launchTraits, POST_AGE_MAX_SEC } from '../sim/traits.ts';
@@ -42,13 +43,18 @@ const clear = awayFromGaps(coins, gaps, o.horizonSec);
 const traits = launchTraits(db, clear, (clear[0]?.createdTs ?? nowTs) - 86400);
 const matching = clear.filter((c) => c.clean && matchesPlaybook(PLAYBOOK, traits.get(c.mint)!));
 const byMint = new Map(coins.map((c) => [c.mint, c]));
+// Fake demand (src/sim/demand.ts): copy launches and create-slot bundles carry the dev's own buying, which made other
+// devs' launches look better than a single honest launch can be. The expectation leaves them out.
+const reach = createSlotReach(coins);
+const copied = copiedMints(db.prepare('SELECT mint, uri FROM coins').all().map((r) => [r.mint as string, r.uri as string | null]));
+const real = (c: BacktestCoin) => !fakeDemand(c, reach, copied);
 
 /**
  * The batch. `coin` is the launch as the observer recorded it, for the replays; null when the observer has no usable
  * record of it (a feed gap, too little time since), in which case the launch counts with its actual result and no
  * replay comparison.
  */
-let batch: { mint: string; ts: number; symbol: string | null; coin: BacktestCoin | null; pnl: number; drew: boolean; postAgeSec: number | null; firstOnPost: boolean | null }[];
+let batch: { mint: string; ts: number; symbol: string | null; coin: BacktestCoin | null; pnl: number; drew: boolean; postAgeSec: number | null; firstOnPost: boolean | null; devBuySol: number }[];
 if (shadow) {
   batch = matching.slice(-size).map((coin) => ({
     mint: coin.mint,
@@ -59,12 +65,13 @@ if (shadow) {
     drew: coin.active,
     postAgeSec: POST_AGE_MAX_SEC[traits.get(coin.mint)!.postAge as keyof typeof POST_AGE_MAX_SEC] ?? null,
     firstOnPost: traits.get(coin.mint)!.postOrder === 'first',
+    devBuySol: coin.launchBuySol,
   }));
 } else {
   const rows = db
-    .prepare(`SELECT mint, created_ts, pnl_sol, drew, post_age_sec, first_on_post FROM our_launches
+    .prepare(`SELECT mint, created_ts, pnl_sol, drew, post_age_sec, first_on_post, dev_buy_sol FROM our_launches
               WHERE mode = ? AND pnl_sol IS NOT NULL ORDER BY created_ts DESC LIMIT ?`)
-    .all(opt('mode') ?? 'paper', size) as { mint: string; created_ts: number; pnl_sol: number; drew: number; post_age_sec: number | null; first_on_post: number | null }[];
+    .all(opt('mode') ?? 'paper', size) as { mint: string; created_ts: number; pnl_sol: number; drew: number; post_age_sec: number | null; first_on_post: number | null; dev_buy_sol: number }[];
   batch = rows.reverse().map((r) => ({
     mint: r.mint,
     ts: r.created_ts,
@@ -74,6 +81,7 @@ if (shadow) {
     drew: Boolean(r.drew),
     postAgeSec: r.post_age_sec,
     firstOnPost: r.first_on_post === null ? null : Boolean(r.first_on_post),
+    devBuySol: r.dev_buy_sol,
   }));
 }
 if (!batch.length) {
@@ -84,9 +92,15 @@ if (!batch.length) {
 // Expectation: other devs' launches under the same rules in the 24 hours before the batch.
 const from = batch[0]!.ts;
 const inBatch = new Set(batch.map((b) => b.mint));
+// The expectation uses launches at the batch's own dev buys (within 0.03 SOL; a 2 SOL launch is not held to what 5 SOL
+// launches made), under the playbook's other rules, with real demand only.
+const sizes = [...new Set(batch.map((b) => Math.round(b.devBuySol * 1000) / 1000))];
+const comparable = clear.filter(
+  (c) => c.clean && real(c) && matchesPlaybook(PLAYBOOK, traits.get(c.mint)!, true) && sizes.some((s) => Math.abs(c.launchBuySol - s) <= 0.03),
+);
 // With fewer than 5 such launches (a short recording, strict rules) every matching launch outside the batch is used.
-const prior = matching.filter((c) => c.createdTs < from && c.createdTs >= from - 86400 && !inBatch.has(c.mint));
-const outside = matching.filter((c) => !inBatch.has(c.mint));
+const prior = comparable.filter((c) => c.createdTs < from && c.createdTs >= from - 86400 && !inBatch.has(c.mint));
+const outside = comparable.filter((c) => !inBatch.has(c.mint));
 // With none at all, the batch's own launches set the expectation: picking and coins gaps are then zero by construction.
 const before = prior.length >= 5 ? prior : outside.length ? outside : batch.flatMap((b) => (b.coin ? [b.coin] : []));
 const expectationFrom =
@@ -126,6 +140,8 @@ console.log(
 if (unreplayed) console.log(`  (${unreplayed} launch(es) not in the observer's record: counted at their actual result, without a replay)`);
 console.log(`  Made          ${f(pm.total)} SOL (${f(pm.mean)} a launch); expected ${f(pm.expectedMean)} a launch from ${exp.launches} ` +
   `matching launches by other devs ${expectationFrom}`);
+console.log(`  Compared with  single-wallet launches at ${sizes.map((s) => s.toFixed(2)).join(', ')} SOL under v${PLAYBOOK.version}'s other rules, ` +
+  `copy launches and bundles left out`);
 console.log(`  Drew buyers   ${pct(pm.hitRate)} (90% ${pct(pm.hitRateLo)}-${pct(pm.hitRateHi)}); expected ${pct(exp.hitRate)}`);
 console.log(`  Gap a launch  picking ${f(pm.gap.picking)}, coins ${f(pm.gap.coins)}, execution ${f(pm.gap.execution)} SOL`);
 console.log(`  Exit          ${pm.exitHindsight ? `"${pm.exitHindsight.plan}" beat it in hindsight beyond noise` : 'no plan beat the playbook exit beyond noise in hindsight'}`);
