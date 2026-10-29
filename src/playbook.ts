@@ -54,8 +54,8 @@ export interface Playbook {
   /**
    * Stop launching for a review after this many launches in a row draw no buyers: devs whose earlier launches all died
    * drew buyers 7% of the time, against 41% for devs with an earlier busy launch, and our one wallet keeps its history.
-   * Set from the real hit rate (about 1 in 3 once fake demand is left out): 3 dead in a row then happens by chance
-   * about 30% of the time, and stopping there halved a session's expected result in simulation (ml/followgate.py).
+   * v4 raised it to 6 on a simulation that treated launches as independent; v5 put it back at 3, because each dead
+   * launch lowers the next one's chances (44% drew buyers from a new wallet, 6% after 3+ dead launches).
    */
   pauseAfterDeadInARow: number;
 }
@@ -136,6 +136,25 @@ export const PLAYBOOKS: Playbook[] = [
     minGapBetweenLaunchesSec: 600,
     sellMaxSlippage: 0.1,
     pauseAfterDeadInARow: 6,
+  },
+  // v5 (2026-10-29), after the second live session: v4 with the pause back at 3. v4's simulation treated launches as
+  // independent; they are not. A dev wallet's dead launches poison its next ones: single-wallet, real-demand launches
+  // with a 1.9+ SOL dev buy drew buyers 44% of the time from a wallet with no earlier launch, 14% after 1-2 dead ones,
+  // 6% after 3+ dead ones, and 53% after an earlier busy one. Our launch wallet drew no sniper buy on any of its last
+  // four launches, including a first launch 17 s after a @Daily_MailUS post. Stopping early protects the record.
+  {
+    version: 5,
+    adopted: '2026-10-29',
+    mayhem: false,
+    devBuySol: 5.0625,
+    devBuyBands: ['4.9-5.1'],
+    exit: flowPolicy(10, 5, 0.5, 120, 0),
+    slowFeedExit: timePolicy(15, 0),
+    maxFeedLagSec: 3,
+    require: { xLink: 'tweet', website: true, maxPostAgeSec: 120, firstOnPost: true, skipFarmedAccounts: true },
+    minGapBetweenLaunchesSec: 600,
+    sellMaxSlippage: 0.1,
+    pauseAfterDeadInARow: 3,
   },
 ];
 

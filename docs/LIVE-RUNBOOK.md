@@ -166,8 +166,9 @@ story.
   sells or holds 5 minutes. Selling sooner, into the sniper wave, made less too (−0.09 to −0.16). `npm run hold-check`.
 - **A dead launch** costs about 0.055 SOL at a 2 SOL bag (measured live on 2026-10-28: −0.003, −0.055, −0.056): the
   trading fees on the buy and sell, rent and two 0.005 SOL tips.
-- **Three dead in a row is routine** at a 1-in-3 hit rate (about 30% by chance). Playbook v4 pauses at 6.
-- **A session on a 2.43 SOL wallet** (up to 10 launches at 2 SOL, v4's pause): mean +2.9 to +5.8 SOL, a 2–9% chance
+- **Dead launches damage the wallet.** A wallet's next launch drew buyers 44% of the time with no earlier launch,
+  14% after 1–2 dead ones and 6% after 3+ dead ones. Playbook v5 pauses at 3 dead in a row (v4's 6 was a mistake).
+- **A session on a 2.43 SOL wallet** (up to 10 launches at 2 SOL, simulated with v4's pause and independent launches: optimistic): mean +2.9 to +5.8 SOL, a 2–9% chance
   of ending down, simulated from real-demand launches at half to all of their hit rate (`python3 ml/followgate.py`).
   This replays other devs' coins and buyers; it is what the strategy did, not what it will do.
 - **The unknown is still our own hit rate.** The post-mortem compares each batch with other devs' single-wallet

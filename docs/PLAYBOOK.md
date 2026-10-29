@@ -5,7 +5,11 @@ beats it on launches held out from its choice by more than the noise, and the ow
 record the version it used. The evidence comes from other devs' recorded launches; the bot's own launches are the
 next test.
 
-## Version 4 (2026-10-29): current, after the first live batch
+## Version 5 (2026-10-29): current
+
+v4 with the pause back at 3 dead launches in a row. See the version history and the review's third session.
+
+## Version 4 (2026-10-29): after the first live batch
 
 v3's rules, with three changes from the review of the first live batch (3 follower launches at 2 SOL on 2026-10-28,
 all dead, −0.11 SOL; the full review is [REVIEW-2026-10-29.md](REVIEW-2026-10-29.md)):
@@ -230,6 +234,7 @@ rules, the figure would fall to about +2.06.
 | 2 | 2026-10-28 | 5 SOL dev buy; launch within 2 min of the post and first on it; 5 s stall window; website optional; pump.fun IPFS metadata | Round 3: same-dev dev-buy comparison, post speed and order, top devs' sell styles replayed |
 | 3 | 2026-10-28 | Source website required (no promo sites); skip farmed accounts; 10 min between launches; 10% sell limit; flow exit up to 3 s of feed lag, else a 15 s timer | Round 5: 334 design and context features tested for replication; sniping, dev-buy sentiment and slippage measured; latency re-measured with 213 ms slots |
 | 4 | 2026-10-29 | Pause after 6 dead launches in a row; the follower follows only triggers others buy (1+ SOL in 3 s after the create slot); expectations on real demand only | First live batch: cold-wallet and fingerprint explanations ruled out; half of recorded first launches carried fake demand; pause simulated at the real hit rate |
+| 5 | 2026-10-29 | Pause back at 3 dead launches in a row | v4's pause was simulated with independent launches; a wallet's dead launches lower its next ones' chances (drew 44% from a new wallet, 14% after 1–2 dead, 6% after 3+). Five dead launches in a row left our wallet drawing no sniper buy even when first on a 17 s old post |
 
 ## Rules learned
 
@@ -268,6 +273,7 @@ Each rule is dated with its evidence, so a later version can check whether it st
 | 2026-10-29 | Check a backtest's demand is real before trusting its size | The +1.32 a launch the follower and the bankroll simulation rested on was half fake demand; the first live batch found it |
 | 2026-10-29 | Be first on the post; never launch second | Live, 0 of 4 second launches drew a sniper buy; on one post the first launch drew 11.22 SOL in its first second, ours (19 s later, the same 2 SOL) nothing |
 | 2026-10-29 | Neither hold longer nor sell sooner | Real-demand first launches at a 2 SOL bag: every longer hold made 0.03–0.14 SOL a launch less, every sooner sale 0.09–0.16 less, in both halves; a launch dead at 10 s gets 1+ SOL later 3% of the time whether its dev holds or not |
+| 2026-10-29 | A wallet's dead launches poison its next ones | Single-wallet real-demand launches at 1.9+ SOL drew buyers 44% from a new wallet, 14% after 1–2 dead, 6% after 3+ dead, 53% after a busy one; v4's pause at 6 assumed independent launches and was reverted |
 
 ## How the playbook improves
 
