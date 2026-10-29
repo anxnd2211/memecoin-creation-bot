@@ -157,6 +157,10 @@ story.
 - **A first launch at 2 SOL on a post under 2 minutes old** draws real buyers about 1 time in 3 (33–37%) and made
   +0.61 to +0.68 SOL a launch on average; the median launch made about +0.2. Within 30 s of the post: +0.71; after:
   +0.27.
+- **The closest match to this bot's first-on-post launch** (the X watcher's): launches that bought exactly 2.000 SOL
+  as the first launch on a post under 2 minutes old made +0.82 SOL a launch (90% +0.65 to +1.00), 84% profitable,
+  and drew buyers 66% of the time. Exactly 3.000 SOL made +1.65 and 5.000 SOL +3.00 (more per SOL, less often
+  profitable: 59% at 5), which is why `--dev-buy auto` steps up once the wallet allows.
 - **A dead launch** costs about 0.055 SOL at a 2 SOL bag (measured live on 2026-10-28: −0.003, −0.055, −0.056): the
   trading fees on the buy and sell, rent and two 0.005 SOL tips.
 - **Three dead in a row is routine** at a 1-in-3 hit rate (about 30% by chance). Playbook v4 pauses at 6.
