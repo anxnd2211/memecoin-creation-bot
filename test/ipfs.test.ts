@@ -32,7 +32,8 @@ test('the metadata links the post and the source and points at the pinned image'
   assert.equal(m.twitter, draft.postUrl);
   assert.equal(m.website, draft.website);
   assert.equal(m.image, `https://ipfs.io/ipfs/${IMG}`);
-  assert.equal('createdOn' in m, false);
+  assert.equal(m.createdOn, 'https://pump.fun');
+  assert.deepEqual(Object.keys(m).slice(0, 7), ['name', 'symbol', 'description', 'image', 'showName', 'createdOn', 'twitter']);
 });
 
 test('pins image and metadata, waits for the public gateway, returns an ipfs.io URI', async () => {

@@ -34,7 +34,13 @@ export interface PinOptions {
   verifyTimeoutMs?: number;
 }
 
-/** The metadata JSON, in the fields pump.fun's site writes (without claiming the coin was made there). */
+/**
+ * The metadata JSON, in the fields and order pump.fun's site writes. `createdOn` names the platform the coin was
+ * created on, as pump.fun's site and the main launch tools all write it (uxento and Pinata-based tools
+ * "https://pump.fun", j7tracker "pump.fun"); it is true of every coin this bot makes. Leaving it out cost us the
+ * snipers: on real-demand launches of 1.9+ SOL hosted on ipfs.io, those with it were sniped 59% of the time (161
+ * launches) and those without it 10% (17), and our six live launches without it drew no sniper (2026-10-29).
+ */
 export function metadataJson(draft: CoinDraft, imageUri: string): Record<string, unknown> {
   return {
     name: draft.name,
@@ -42,6 +48,7 @@ export function metadataJson(draft: CoinDraft, imageUri: string): Record<string,
     description: draft.description,
     image: imageUri,
     showName: true,
+    createdOn: 'https://pump.fun',
     twitter: draft.postUrl,
     website: draft.website,
     ...(draft.telegram ? { telegram: draft.telegram } : {}),

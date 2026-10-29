@@ -274,6 +274,7 @@ Each rule is dated with its evidence, so a later version can check whether it st
 | 2026-10-29 | Be first on the post; never launch second | Live, 0 of 4 second launches drew a sniper buy; on one post the first launch drew 11.22 SOL in its first second, ours (19 s later, the same 2 SOL) nothing |
 | 2026-10-29 | Neither hold longer nor sell sooner | Real-demand first launches at a 2 SOL bag: every longer hold made 0.03–0.14 SOL a launch less, every sooner sale 0.09–0.16 less, in both halves; a launch dead at 10 s gets 1+ SOL later 3% of the time whether its dev holds or not |
 | 2026-10-29 | A wallet's dead launches poison its next ones | Single-wallet real-demand launches at 1.9+ SOL drew buyers 44% from a new wallet, 14% after 1–2 dead, 6% after 3+ dead, 53% after a busy one; v4's pause at 6 assumed independent launches and was reverted |
+| 2026-10-29 | Write `createdOn` in the metadata | ipfs.io-hosted real-demand launches with `createdOn: pump.fun` were sniped 59%, without it 10%; all six of our live launches lacked it and none was sniped |
 
 ## How the playbook improves
 
