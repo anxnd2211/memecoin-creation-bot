@@ -39,7 +39,7 @@ The playbook buys 5 SOL and wants about 8 SOL in the wallet. With less, start th
 
 | Wallet | Use | Why |
 | --- | --- | --- |
-| About 2.2–3 SOL | `--dev-buy 2` or `--dev-buy auto` | Sniper bots answer exactly 2.000 SOL into the curve (sniped 74–79% of the time, against 12–57% for 1.95–2.4 SOL). Strong-post launches at 2 SOL made +1.24 SOL each by others' records; a dead one costs about 0.05 SOL. With 2.5 SOL the wallet can lose about 0.33 SOL to dead launches before it can no longer pay for one |
+| About 2.2–3 SOL | `--dev-buy 2` or `--dev-buy auto` | Sniper bots answer exactly 2.000 SOL into the curve (sniped 74–79% of the time, against 12–57% for 1.95–2.4 SOL). Strong-post launches at 2 SOL made +1.24 SOL each by others' records, about half of it fake demand (+0.6 to +0.7 with copy launches and bundles left out); a dead one costs about 0.05 SOL. With 2.5 SOL the wallet can lose about 0.33 SOL to dead launches before it can no longer pay for one |
 | About 3.2–3.5 SOL | `--dev-buy 2`, not 3 | 3 SOL needs 3.19 SOL in the wallet, so one dead launch strands it; in simulation a 3.25 SOL wallet buying 3 SOL ended at a loss 37% of the time when our hit rate was half of theirs |
 | About 8 SOL | the default (5 SOL) | 5 SOL made the most per launch and per SOL |
 
@@ -52,8 +52,8 @@ Your only action is the Approve tap. Candidates reach the bot three ways, best f
 
 | Source | Needs | How fast | What you do |
 | --- | --- | --- | --- |
-| **Launch-follower** (`--follow`) | nothing | ours is the 2nd launch on the post, seconds after the 1st; +1.1 SOL a launch at a 2 SOL bag on recorded data | tap Approve |
-| **X watcher** | an X API key in `.env` (console.x.com, pay-per-use) | ours is often the 1st launch (+1.3) | tap Approve |
+| **Launch-follower** (`--follow`) | nothing | ours is the 2nd launch on a post whose 1st launch others are buying (1+ SOL in its first 3 s); +0.74 SOL a launch at a 2 SOL bag on recorded real demand | tap Approve |
+| **X watcher** | an X API key in `.env` (console.x.com, pay-per-use) | ours is often the 1st launch: +0.71 a launch within 30 s of the post, +0.27 after (real demand) | tap Approve |
 | **/launch by hand** | you watching X | depends on you | send the post, tap Approve |
 
 The follower works because other devs' bots watch X around the clock: the first launch on a post proves the post
@@ -149,20 +149,19 @@ npm run postmortem -- --mode live           # after the batch
 
 ## What to expect
 
-- **Launches meeting every v3 rule** (other devs, research hours): +5.6 SOL each in both research halves. On the
-  sealed hour 22:35–23:46 UTC, never used in research: +6.62 on 4 launches.
-- **The exit on the sealed hour:** +0.89 SOL a launch better than what the recorded devs did (275 launches).
-- **A dead launch** costs about 0.11 SOL: 0.095 of trading fees on the 5 SOL buy and sell (the most a whole-bag sell
-  can lose), 0.009 of rent and 0.002 of tips. Successful 5 SOL devs land their launches with a 0.005 SOL Jito tip (60%
-  of them) and almost no priority fee; `SENDER_TIP_LAMPORTS` sets ours (default 0.001 SOL).
-- **A batch of 10** (`python3 ml/batch.py 10 single`, replays of single-wallet launches that met the rules):
+These are measured on other devs' launches with **real demand only**: copy launches and create-slot bundles, which
+carry the dev's own buying, are left out (`src/sim/demand.ts`). Before 2026-10-29 this section quoted numbers about
+twice as high, from launches half of which carried fake demand; [REVIEW-2026-10-29.md](REVIEW-2026-10-29.md) has the
+story.
 
-  | Our hit rate vs theirs | Typical total | 5th percentile | Chance of a loss |
-  | --- | --- | --- | --- |
-  | Same as theirs | +35 SOL | +20 | 0% |
-  | Half of theirs | +19 SOL | +6 | 0.1% |
-  | A quarter of theirs | +10.5 SOL | +1 | 2.3% |
-
-  These replay other devs' coins, timing and buyers. They are what the strategy did, not what it will do.
-- **The unknown is our own hit rate.** Our coins, our timing and our wallet's record decide it. The first batch of
-  10 measures it, and the post-mortem says where any gap comes from.
+- **A first launch at 2 SOL on a post under 2 minutes old** draws real buyers about 1 time in 3 (33–37%) and made
+  +0.61 to +0.68 SOL a launch on average; the median launch made about +0.2. Within 30 s of the post: +0.71; after:
+  +0.27.
+- **A dead launch** costs about 0.055 SOL at a 2 SOL bag (measured live on 2026-10-28: −0.003, −0.055, −0.056): the
+  trading fees on the buy and sell, rent and two 0.005 SOL tips.
+- **Three dead in a row is routine** at a 1-in-3 hit rate (about 30% by chance). Playbook v4 pauses at 6.
+- **A session on a 2.43 SOL wallet** (up to 10 launches at 2 SOL, v4's pause): mean +2.9 to +5.8 SOL, a 2–9% chance
+  of ending down, simulated from real-demand launches at half to all of their hit rate (`python3 ml/followgate.py`).
+  This replays other devs' coins and buyers; it is what the strategy did, not what it will do.
+- **The unknown is still our own hit rate.** The post-mortem compares each batch with other devs' single-wallet
+  launches at our dev buy, real demand only, and splits any gap into picking, coins and execution.

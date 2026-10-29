@@ -16,7 +16,7 @@ import { pinMetadata } from '../live/ipfs.ts';
 import { sellLeftoverBags } from '../live/recover.ts';
 import { takeVanity, vanityLeft } from '../live/vanity.ts';
 import { devBuyFor, parseDevBuy, withFees } from '../live/devbuy.ts';
-import { followLaunch } from '../live/follower.ts';
+import { MIN_TRIGGER_FLOW_SOL, TRIGGER_WINDOW_SEC, followLaunch, triggerReject, watchTrigger } from '../live/follower.ts';
 import { runLaunch, type LaunchDeps } from '../live/launcher.ts';
 import { LiveFeed } from '../live/stream.ts';
 import { TelegramNotifier, USAGE, type CommandMessage } from '../live/telegram.ts';
@@ -480,16 +480,26 @@ async function liveRun(): Promise<void> {
     void watcher.start().catch((e) => void tg.send(`X watcher stopped: ${(e as Error).message}`));
   }
 
-  // The launch-follower: new launches on the feed whose metadata links a fresh post become candidates (ours second).
+  // The launch-follower: new launches on the feed that other wallets are buying, and whose metadata links a fresh
+  // post, become candidates (ours second). Every eligible launch is watched for its first seconds at once (that only
+  // reads the feed); one candidate at a time is then drafted and boarded.
   let offFollower = () => {};
   if (follow) {
-    const stats = { seen: 0, followed: 0 };
+    const stats = { seen: 0, watched: 0, drewEnough: 0, followed: 0 };
     let chasing = false;
     offFollower = feed.onLaunch((l) => {
       stats.seen++;
-      if (busy || chasing || killed()) return;
-      chasing = true;
+      if (busy || killed() || triggerReject(l)) return;
+      stats.watched++;
       void (async () => {
+        const flow = await watchTrigger(feed, l);
+        if (flow < MIN_TRIGGER_FLOW_SOL) {
+          log.debug('not followed: the trigger drew too little', { mint: l.mint, flow: Number(flow.toFixed(2)) });
+          return;
+        }
+        stats.drewEnough++;
+        if (busy || chasing || killed()) return;
+        chasing = true;
         try {
           const { candidate, reason } = await followLaunch(l, { gateways: config.ipfsGateways });
           if (!candidate) {
@@ -510,11 +520,16 @@ async function liveRun(): Promise<void> {
           const pre = launchBoard({ playbook: playbookFor(bal), limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: bal, killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
           const blocking = pre.gates.filter((g) => !g.pass && !(g.name.includes('launches on the post') && /^[01] launches/.test(g.detail)));
           if (blocking.length) {
-            log.info('not followed', { post: post.url, reason: blocking.map((g) => g.name).join(', ') });
+            log.info('not followed', { post: post.url, failedGates: blocking.map((g) => g.name).join(', ') });
             return;
           }
           stats.followed++;
-          await launch(post, draft, `${post.text ?? d.name} (followed $${candidate.trigger.symbol}, drafted from ${d.basis})`);
+          log.info('following', { post: post.url, trigger: candidate.trigger.symbol, triggerFlowSol: Number(flow.toFixed(2)) });
+          await launch(
+            post,
+            draft,
+            `${post.text ?? d.name} (followed $${candidate.trigger.symbol}, which drew ${flow.toFixed(2)} SOL from others in its first ${TRIGGER_WINDOW_SEC} s; drafted from ${d.basis})`,
+          );
         } catch (e) {
           log.warn('follower error', { mint: l.mint, err: (e as Error).message });
         } finally {
@@ -522,7 +537,9 @@ async function liveRun(): Promise<void> {
         }
       })();
     });
-    void tg.send('Launch-follower ON: first launches on fresh posts become your approval cards automatically.');
+    void tg.send(
+      `Launch-follower ON: first launches on fresh posts that others buy (${MIN_TRIGGER_FLOW_SOL}+ SOL in their first ${TRIGGER_WINDOW_SEC} s) become your approval cards automatically.`,
+    );
   }
   const stop = new AbortController();
   // A launch in flight finishes (its sell and its record) before the feed, Telegram and the database close.

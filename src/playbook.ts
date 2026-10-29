@@ -54,6 +54,8 @@ export interface Playbook {
   /**
    * Stop launching for a review after this many launches in a row draw no buyers: devs whose earlier launches all died
    * drew buyers 7% of the time, against 41% for devs with an earlier busy launch, and our one wallet keeps its history.
+   * Set from the real hit rate (about 1 in 3 once fake demand is left out): 3 dead in a row then happens by chance
+   * about 30% of the time, and stopping there halved a session's expected result in simulation (ml/followgate.py).
    */
   pauseAfterDeadInARow: number;
 }
@@ -115,6 +117,26 @@ export const PLAYBOOKS: Playbook[] = [
     sellMaxSlippage: 0.1,
     pauseAfterDeadInARow: 3,
   },
+  // v4 (2026-10-29), after the first live batch: v3's rules, with the pause at 6 dead launches in a row. With fake
+  // demand (copy launches, create-slot bundles) left out, a first launch draws buyers about 1 time in 3, so 3 dead in a
+  // row is routine (about 30% by chance) and pausing there stops healthy sessions: on a 2.43 SOL wallet at half the
+  // recorded hit rate, pausing at 3 gave +1.51 SOL a 10-launch session and a 22% chance of ending down, pausing at 6
+  // gave +2.89 and 9% (ml/followgate.py). Six in a row happens by chance about 9% of the time, so it still flags a
+  // broken launch path, at about 0.33 SOL of dead 2 SOL launches.
+  {
+    version: 4,
+    adopted: '2026-10-29',
+    mayhem: false,
+    devBuySol: 5.0625,
+    devBuyBands: ['4.9-5.1'],
+    exit: flowPolicy(10, 5, 0.5, 120, 0),
+    slowFeedExit: timePolicy(15, 0),
+    maxFeedLagSec: 3,
+    require: { xLink: 'tweet', website: true, maxPostAgeSec: 120, firstOnPost: true, skipFarmedAccounts: true },
+    minGapBetweenLaunchesSec: 600,
+    sellMaxSlippage: 0.1,
+    pauseAfterDeadInARow: 6,
+  },
 ];
 
 export const PLAYBOOK: Playbook = PLAYBOOKS.at(-1)!;
@@ -125,11 +147,12 @@ export function exitFor(p: Playbook, feedLagSec: number | null): ExitPolicy {
 }
 
 /** Whether a recorded launch looks like one this playbook would make (dev buy band, links, post age and order). */
-export function matchesPlaybook(p: Playbook, t: LaunchTraits): boolean {
+/** Whether a recorded launch follows the playbook's rules; `anyDevBuy` drops the dev-buy band (the caller matches size). */
+export function matchesPlaybook(p: Playbook, t: LaunchTraits, anyDevBuy = false): boolean {
   const r = p.require;
   const maxAge = r.maxPostAgeSec;
   return (
-    p.devBuyBands.includes(t.devBuy) &&
+    (anyDevBuy || p.devBuyBands.includes(t.devBuy)) &&
     (r.xLink === null || t.xLink === 'tweet' || (r.xLink === 'any' && (t.xLink === 'community' || t.xLink === 'profile'))) &&
     (!r.website || t.website === 'yes') &&
     (maxAge === null || (t.postAge in POST_AGE_MAX_SEC && POST_AGE_MAX_SEC[t.postAge as keyof typeof POST_AGE_MAX_SEC] <= maxAge)) &&

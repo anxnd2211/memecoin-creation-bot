@@ -52,7 +52,9 @@ test('a launch that meets every rule passes, and each rule blocks on its own', (
   assert.deepEqual(failed(input({}, { ours: { lastLaunchTs: NOW - 300, launchesToday: 1, pnlTodaySol: 0, deadInARow: 0 } })), ['spacing']);
   assert.deepEqual(failed(input({}, { ours: { lastLaunchTs: null, launchesToday: 10, pnlTodaySol: 0, deadInARow: 0 } })), ['daily launches']);
   assert.deepEqual(failed(input({}, { ours: { lastLaunchTs: null, launchesToday: 2, pnlTodaySol: -1.6, deadInARow: 0 } })), ['daily loss']);
-  assert.deepEqual(failed(input({}, { ours: { lastLaunchTs: null, launchesToday: 3, pnlTodaySol: -0.3, deadInARow: 3 } })), ['dead streak']);
+  const pause = PLAYBOOK.pauseAfterDeadInARow;
+  assert.deepEqual(failed(input({}, { ours: { lastLaunchTs: null, launchesToday: 3, pnlTodaySol: -0.3, deadInARow: pause } })), ['dead streak']);
+  assert.deepEqual(failed(input({}, { ours: { lastLaunchTs: null, launchesToday: 3, pnlTodaySol: -0.3, deadInARow: pause - 1 } })), []);
   assert.deepEqual(failed(input({}, { balanceLamports: 5_000_000_000n })), ['wallet balance']);
   assert.deepEqual(failed(input({ preflight: 'custom program error: 0x1772' })), ['preflight simulation']);
   assert.deepEqual(failed(input({ approved: false })), ['owner approval']);

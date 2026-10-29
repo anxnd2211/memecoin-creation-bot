@@ -1,7 +1,8 @@
 import { tweetTs, xHandle } from '../intel/xlinks.ts';
 import { candidateUrls, parseMeta } from '../market/metadata.ts';
+import { SLOT_SEC } from '../sim/simulate.ts';
 import { sniffImage } from './designer.ts';
-import type { LiveLaunch } from './stream.ts';
+import type { FeedTrade, LiveFeed, LiveLaunch } from './stream.ts';
 import type { PostInfo } from './types.ts';
 
 /**
@@ -12,6 +13,12 @@ import type { PostInfo } from './types.ts';
  * the post. On recorded data, second launches arriving within 60 s of the first on a post under 3 minutes old made
  * +1.14 SOL at a 2 SOL bag (65% profitable, about 16 chances an hour); first launches made +1.34. The coin's image is
  * the post's image, read from the trigger launch's metadata, as every launch on a post uses the post's image.
+ *
+ * A trigger is followed only when other wallets are buying it: our first live batch followed three triggers, two of
+ * them dead themselves (a 0.51 SOL launch nobody bought, an empty one), and drew nobody. On recorded second launches
+ * with real demand (src/sim/demand.ts), those whose trigger drew 1+ SOL from others in its first 3 s, create slot left
+ * out, made +0.74 SOL at a 2 SOL bag (70% profitable) against +0.45 (54%) for the rest, in both halves of the record
+ * (ml/followgate.py). The create slot is left out because a trigger's own bundle lands there.
  */
 
 export interface FollowCandidate {
@@ -32,6 +39,52 @@ export interface FollowerOptions {
   gateways: string[];
   fetchImpl?: typeof fetch;
   now?: () => number;
+}
+
+/** SOL other wallets must buy of a trigger in its first `TRIGGER_WINDOW_SEC`, create slot left out, to follow it. */
+export const MIN_TRIGGER_FLOW_SOL = 1;
+export const TRIGGER_WINDOW_SEC = 3;
+/** Wait past the window for the feed to deliver its trades (feed lag p95 is about 1.6 s). */
+const TRIGGER_SETTLE_MS = 1_500;
+
+/** Other wallets' buying of a launch after its create slot and within `windowSec` of it (slot time). */
+export function triggerFlow(
+  trades: readonly Pick<FeedTrade, 'slot' | 'isBuy' | 'dev' | 'sol'>[],
+  launchSlot: number,
+  windowSec = TRIGGER_WINDOW_SEC,
+): number {
+  let sol = 0;
+  for (const t of trades) {
+    if (t.isBuy && !t.dev && t.slot > launchSlot && (t.slot - launchSlot) * SLOT_SEC <= windowSec) sol += t.sol;
+  }
+  return sol;
+}
+
+/**
+ * Watches a new launch's trades for its first `windowSec` and resolves with `triggerFlow`. Only reads the feed, so
+ * the follower watches every eligible launch at once and never misses one while another is being drafted.
+ */
+export function watchTrigger(
+  feed: Pick<LiveFeed, 'subscribe'>,
+  l: LiveLaunch,
+  o: { windowSec?: number; settleMs?: number; setTimer?: (fn: () => void, ms: number) => unknown } = {},
+): Promise<number> {
+  const windowSec = o.windowSec ?? TRIGGER_WINDOW_SEC;
+  const trades: FeedTrade[] = [];
+  const off = feed.subscribe(l.mint, [l.creator, l.signer], (t) => trades.push(t));
+  return new Promise((resolve) => {
+    (o.setTimer ?? setTimeout)(() => {
+      off();
+      resolve(triggerFlow(trades, l.slot, windowSec));
+    }, windowSec * 1000 + (o.settleMs ?? TRIGGER_SETTLE_MS));
+  });
+}
+
+/** Why a new launch cannot be a trigger at all, from the launch alone (no network); null when it can. */
+export function triggerReject(l: LiveLaunch, minTriggerBuySol = 0.1): string | null {
+  if (l.isMayhem || l.quote !== 'SOL') return 'mayhem or not SOL';
+  if (l.devBuySol / 1.0125 < minTriggerBuySol) return 'trigger dev buy too small';
+  return null;
 }
 
 const META_TIMEOUT_MS = 6_000;
@@ -74,8 +127,8 @@ export async function followLaunch(
   o: FollowerOptions,
 ): Promise<{ candidate: FollowCandidate | null; reason: string }> {
   const now = o.now ?? (() => Math.floor(Date.now() / 1000));
-  if (l.isMayhem || l.quote !== 'SOL') return { candidate: null, reason: 'mayhem or not SOL' };
-  if (l.devBuySol / 1.0125 < (o.minTriggerBuySol ?? 0.1)) return { candidate: null, reason: 'trigger dev buy too small' };
+  const rejected = triggerReject(l, o.minTriggerBuySol);
+  if (rejected) return { candidate: null, reason: rejected };
   const meta = await readMeta(l.uri, o);
   if (!meta) return { candidate: null, reason: 'metadata unreadable' };
   const postedAt = tweetTs(meta.twitter);

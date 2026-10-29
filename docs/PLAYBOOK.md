@@ -5,7 +5,39 @@ beats it on launches held out from its choice by more than the noise, and the ow
 record the version it used. The evidence comes from other devs' recorded launches; the bot's own launches are the
 next test.
 
-## Version 3 (2026-10-28): current, for paper mode until the owner approves it for live launches
+## Version 4 (2026-10-29): current, after the first live batch
+
+v3's rules, with three changes from the review of the first live batch (3 follower launches at 2 SOL on 2026-10-28,
+all dead, −0.11 SOL; the full review is [REVIEW-2026-10-29.md](REVIEW-2026-10-29.md)):
+
+- **Pause after 6 dead launches in a row, not 3.** With fake demand left out (below), a first launch draws buyers
+  about 1 time in 3, so 3 dead in a row happens by chance about 30% of the time. On a 2.43 SOL wallet at half the
+  recorded hit rate, pausing at 3 gave +1.51 SOL a 10-launch session with a 22% chance of ending down; pausing at 6,
+  +2.89 and 9% (`python3 ml/followgate.py`). Six in a row is a 9% event by chance, so it still flags a broken path.
+- **The follower follows only launches that others are buying:** 1+ SOL from other wallets in the trigger's first 3 s,
+  its create slot left out (a trigger's own bundle lands there). On recorded second launches with real demand,
+  followed ones made +0.74 at a 2 SOL bag (70% profitable) against +0.45 (54%) for the rest, the same way in both
+  halves of the record. Two of our three triggers were dead themselves.
+- **Expectations and comparisons use real demand only.** Half of the recorded first launches (47–50%) were copy
+  launches (one operator launching the same metadata from many fresh wallets) or bundled (create-slot buys by wallets
+  that only ever buy that dev's coins). Selling into your own wallets is not profit. Without them, a first launch on
+  a post under 2 min old made **+0.61 to +0.68 SOL at a 2 SOL bag** (not +1.32) and drew buyers **33–37%** of the
+  time (not 50%). The export, the watchlist and the post-mortem now leave them out (`src/sim/demand.ts`).
+
+### What the first live batch did and did not show
+
+- **Not a cold wallet.** New devs (no launch in 12+ hours of recording) were sniped as often as devs with a history,
+  and devs with no prior launch were sniped more at 2 SOL (65%) than devs with 10+ (39%) (`python3 ml/coldstart.py`).
+- **Not a fingerprint.** 252 failed transactions on one of our coins were one trader's private program firing a guarded
+  buy about 4 times a slot; its own check said no (error 0x6f) without ever calling pump.fun: a momentum bot waiting
+  for buying that never came.
+- **The posts were dead.** On the same posts in the same minutes, the launches we followed drew 0, ~1 and 3.6 SOL;
+  ours drew 0.43, 0 and 0. Independent sniper bots (wallets buying create slots across 5+ devs) are real and buy
+  pump.fun-site launches too, but they did not buy launches on posts whose first launch had failed.
+- **Speed still decides first launches:** with real demand, posts ≤30 s old made +0.71, 30–120 s +0.26 to +0.29, in
+  both halves.
+
+## Version 3 (2026-10-28): superseded by v4 on 2026-10-29
 
 Version 2, plus three launch rules and a sell limit:
 
@@ -196,6 +228,7 @@ rules, the figure would fall to about +2.06.
 | 1 | 2026-10-27 | Flow exit with a 20 s timer when the feed is slow; require a post link and a source website; pause after 3 dead launches | Round 2: dev-sell reactions modelled; launch traits measured |
 | 2 | 2026-10-28 | 5 SOL dev buy; launch within 2 min of the post and first on it; 5 s stall window; website optional; pump.fun IPFS metadata | Round 3: same-dev dev-buy comparison, post speed and order, top devs' sell styles replayed |
 | 3 | 2026-10-28 | Source website required (no promo sites); skip farmed accounts; 10 min between launches; 10% sell limit; flow exit up to 3 s of feed lag, else a 15 s timer | Round 5: 334 design and context features tested for replication; sniping, dev-buy sentiment and slippage measured; latency re-measured with 213 ms slots |
+| 4 | 2026-10-29 | Pause after 6 dead launches in a row; the follower follows only triggers others buy (1+ SOL in 3 s after the create slot); expectations on real demand only | First live batch: cold-wallet and fingerprint explanations ruled out; half of recorded first launches carried fake demand; pause simulated at the real hit rate |
 
 ## Rules learned
 
@@ -227,6 +260,11 @@ Each rule is dated with its evidence, so a later version can check whether it st
 | 2026-10-28 | Do not go below 3 SOL; 5 SOL beats 3 | 2–2.95 SOL made 0.48 SOL per SOL put in on strong posts, 5 SOL 0.89; no sign that big dev buys deter traders |
 | 2026-10-28 | Name, ticker and description length do not decide much | None of ~60 name, ticker and description features replicated, within the same post or across launches |
 | 2026-10-28 | Launch whenever the rules are met; do not wait for an hour or a hot market | The same devs made the same at 01–07 and 19–22 UTC (−0.06, 90% −1.01 to +0.90); no market measure predicted results on held-out blocks; launching at every chance made +15.5 SOL an hour against +9.6 to +11.3 for waiting |
+| 2026-10-29 | Leave fake demand out of every comparison | 47–50% of first launches were copy launches or create-slot bundles; without them a 2 SOL first launch made +0.61 to +0.68, not +1.32, and drew buyers 33–37%, not 50% |
+| 2026-10-29 | Follow only a launch others are buying | Second launches whose trigger drew 1+ SOL from others in 3 s (create slot left out): +0.74 vs +0.45, in both halves |
+| 2026-10-29 | A new wallet is not why snipers stay away | New devs were sniped as often as known ones; at 2 SOL, devs with no earlier launch were sniped 65%, devs with 10+ 39% |
+| 2026-10-29 | Pause on 6 dead in a row at a 1-in-3 hit rate | Pausing at 3 halved a session's expected result and doubled the chance of ending down in simulation |
+| 2026-10-29 | Check a backtest's demand is real before trusting its size | The +1.32 a launch the follower and the bankroll simulation rested on was half fake demand; the first live batch found it |
 
 ## How the playbook improves
 
