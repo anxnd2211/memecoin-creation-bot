@@ -14,7 +14,8 @@ all dead, −0.11 SOL; the full review is [REVIEW-2026-10-29.md](REVIEW-2026-10-
   about 1 time in 3, so 3 dead in a row happens by chance about 30% of the time. On a 2.43 SOL wallet at half the
   recorded hit rate, pausing at 3 gave +1.51 SOL a 10-launch session with a 22% chance of ending down; pausing at 6,
   +2.89 and 9% (`python3 ml/followgate.py`). Six in a row is a 9% event by chance, so it still flags a broken path.
-- **The follower follows only launches that others are buying:** 1+ SOL from other wallets in the trigger's first 3 s,
+- **The follower follows only launches that others are buying** (and, after the second live session, only watches in
+  live mode: 0 of 4 live second launches drew a sniper buy): 1+ SOL from other wallets in the trigger's first 3 s,
   its create slot left out (a trigger's own bundle lands there). On recorded second launches with real demand,
   followed ones made +0.74 at a 2 SOL bag (70% profitable) against +0.45 (54%) for the rest, the same way in both
   halves of the record. Two of our three triggers were dead themselves.
@@ -265,6 +266,8 @@ Each rule is dated with its evidence, so a later version can check whether it st
 | 2026-10-29 | A new wallet is not why snipers stay away | New devs were sniped as often as known ones; at 2 SOL, devs with no earlier launch were sniped 65%, devs with 10+ 39% |
 | 2026-10-29 | Pause on 6 dead in a row at a 1-in-3 hit rate | Pausing at 3 halved a session's expected result and doubled the chance of ending down in simulation |
 | 2026-10-29 | Check a backtest's demand is real before trusting its size | The +1.32 a launch the follower and the bankroll simulation rested on was half fake demand; the first live batch found it |
+| 2026-10-29 | Be first on the post; never launch second | Live, 0 of 4 second launches drew a sniper buy; on one post the first launch drew 11.22 SOL in its first second, ours (19 s later, the same 2 SOL) nothing |
+| 2026-10-29 | Neither hold longer nor sell sooner | Real-demand first launches at a 2 SOL bag: every longer hold made 0.03–0.14 SOL a launch less, every sooner sale 0.09–0.16 less, in both halves; a launch dead at 10 s gets 1+ SOL later 3% of the time whether its dev holds or not |
 
 ## How the playbook improves
 

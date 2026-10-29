@@ -41,8 +41,9 @@ Runs the launcher under playbook v${PLAYBOOK.version} (docs/LIVE-RUNBOOK.md).
   dry   the real feed, the observer's database and Telegram: launch cards come from /launch or the X watcher, every
         gate runs and you approve on Telegram, but the launch and the sell are simulated against mainnet, never sent.
   live  real launches from the wallet in LAUNCH_KEYPAIR_PATH, each approved by you on Telegram.
-  --follow  full automation without an X key: the first launch on a fresh post becomes the trigger for yours (the
-        second on the post, +1.1 SOL a launch at a 2 SOL bag on recorded data). You still approve every card.
+  --follow  watch the feed for first launches on fresh posts that others are buying. In live mode it only logs the
+        posts it would have followed: live, 0 of 4 second launches drew a sniper buy, while the first launch on the
+        same post drew 11 SOL (docs/REVIEW-2026-10-29.md). --follow-live sends those cards anyway; dry mode sends them.
   --dev-buy  for a wallet smaller than the playbook's 5 SOL: exactly 2, 3, 4 or 5 SOL into the curve (the amounts sniper
         bots answer), or auto: 2 SOL until the wallet can afford 5 SOL with a 0.3 SOL buffer, then 5.
   --smoke  with live: one real launch with a 0.1 SOL dev buy (about 0.012 SOL of cost) to check everything end to end.
@@ -63,7 +64,14 @@ const smoke = args.includes('--smoke');
  * on a post becomes the trigger for ours (the second), so candidates arrive with no one watching X. The playbook's
  * first-on-post gate then allows exactly that one prior launch, for /launch commands too.
  */
-const follow = args.includes('--follow');
+const follow = args.includes('--follow') || args.includes('--follow-live');
+/**
+ * In live mode the follower only logs what it would have followed, unless --follow-live: on 2026-10-28/29 all four
+ * live second launches drew no sniper buy (on the same post as one of them, the first launch drew 11.22 SOL in its
+ * first second), against +0.74 a launch that recorded second launches suggested. Snipers buy the first launch on a
+ * post. The watch-only log keeps measuring what second launches would have drawn.
+ */
+const followSends = args.includes('--follow-live') || mode !== 'live';
 const basePlaybook: Playbook = follow
   ? { ...PLAYBOOK, require: { ...PLAYBOOK.require, maxPriorLaunchesOnPost: 1 } }
   : PLAYBOOK;
@@ -524,6 +532,10 @@ async function liveRun(): Promise<void> {
             return;
           }
           stats.followed++;
+          if (!followSends) {
+            log.info('would follow (watch-only in live mode)', { post: post.url, trigger: candidate.trigger.symbol, triggerFlowSol: Number(flow.toFixed(2)) });
+            return;
+          }
           log.info('following', { post: post.url, trigger: candidate.trigger.symbol, triggerFlowSol: Number(flow.toFixed(2)) });
           await launch(
             post,
@@ -538,7 +550,9 @@ async function liveRun(): Promise<void> {
       })();
     });
     void tg.send(
-      `Launch-follower ON: first launches on fresh posts that others buy (${MIN_TRIGGER_FLOW_SOL}+ SOL in their first ${TRIGGER_WINDOW_SEC} s) become your approval cards automatically.`,
+      followSends
+        ? `Launch-follower ON: first launches on fresh posts that others buy (${MIN_TRIGGER_FLOW_SOL}+ SOL in their first ${TRIGGER_WINDOW_SEC} s) become your approval cards automatically.`
+        : 'Launch-follower WATCH-ONLY: it logs the posts it would follow but sends no cards (live second launches drew no snipers). Cards come from the X watcher and /launch.',
     );
   }
   const stop = new AbortController();

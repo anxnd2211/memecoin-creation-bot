@@ -29,7 +29,8 @@
     "grind": "node --disable-warning=ExperimentalWarning src/cli/grind.ts",
     "doctor": "node --disable-warning=ExperimentalWarning src/cli/doctor.ts",
     "daily": "node --disable-warning=ExperimentalWarning src/cli/daily.ts",
-    "dashboard": "node --disable-warning=ExperimentalWarning src/cli/dashboard.ts"
+    "dashboard": "node --disable-warning=ExperimentalWarning src/cli/dashboard.ts",
+    "hold-check": "node --disable-warning=ExperimentalWarning src/cli/holdCheck.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

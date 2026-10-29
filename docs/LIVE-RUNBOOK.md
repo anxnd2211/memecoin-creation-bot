@@ -52,15 +52,15 @@ Your only action is the Approve tap. Candidates reach the bot three ways, best f
 
 | Source | Needs | How fast | What you do |
 | --- | --- | --- | --- |
-| **Launch-follower** (`--follow`) | nothing | ours is the 2nd launch on a post whose 1st launch others are buying (1+ SOL in its first 3 s); +0.74 SOL a launch at a 2 SOL bag on recorded real demand | tap Approve |
+| **Launch-follower** (`--follow`) | nothing | **watch-only in live mode.** It logs the posts it would follow. Live, 0 of 4 second launches drew a sniper buy; the first launch on the same post drew 11 SOL. `--follow-live` sends its cards anyway | nothing |
 | **X watcher** | an X API key in `.env` (console.x.com, pay-per-use) | ours is often the 1st launch: +0.71 a launch within 30 s of the post, +0.27 after (real demand) | tap Approve |
 | **/launch by hand** | you watching X | depends on you | send the post, tap Approve |
 
-The follower works because other devs' bots watch X around the clock: the first launch on a post proves the post
-exists, and second launches do nearly as well as first ones. Start the bot with:
+Snipers buy the first launch on a post and skip the second, so launches come from the X watcher and `/launch`: both
+aim to be first on the post. Start the bot with:
 
 ```bash
-npm run live -- --mode live --follow --dev-buy auto
+npm run live -- --mode live --dev-buy auto
 ```
 
 ## Watching it live: the dashboard
@@ -76,7 +76,7 @@ Extra wallets appear via `DASHBOARD_WALLETS=label:pubkey,...` in `.env` (public 
 
 ## What the bot does on each launch (playbook v3)
 
-1. **A candidate post arrives.** The launch-follower spots it from the first launch on the post, the X watcher
+1. **A candidate post arrives.** The X watcher
    streams it from a watched account, or you send it yourself as a photo with the caption `/launch <post url>`. With
    just the link, the ticker and name are drafted from the post's text. To choose them yourself, use
    `/launch <post url> | <TICKER> | <Name> | <source url>`.
@@ -157,10 +157,13 @@ story.
 - **A first launch at 2 SOL on a post under 2 minutes old** draws real buyers about 1 time in 3 (33–37%) and made
   +0.61 to +0.68 SOL a launch on average; the median launch made about +0.2. Within 30 s of the post: +0.71; after:
   +0.27.
-- **The closest match to this bot's first-on-post launch** (the X watcher's): launches that bought exactly 2.000 SOL
-  as the first launch on a post under 2 minutes old made +0.82 SOL a launch (90% +0.65 to +1.00), 84% profitable,
-  and drew buyers 66% of the time. Exactly 3.000 SOL made +1.65 and 5.000 SOL +3.00 (more per SOL, less often
-  profitable: 59% at 5), which is why `--dev-buy auto` steps up once the wallet allows.
+- **Launches like ours** (first on the post, one wallet, no token passing, real demand), replayed at a 2 SOL bag:
+  +0.55 SOL a launch (90% +0.48 to +0.63), half of them profitable; posts ≤30 s old +0.63, 30–120 s +0.36. Those
+  that bought exactly 2.000 SOL made +0.28 to +0.86 a launch, 65–82% profitable, depending on how strictly "first"
+  is defined (23–50 launches: a small sample).
+- **The exit is right as it is.** Holding longer made less on every plan tried (−0.03 to −0.14 SOL a launch, both
+  halves), and a launch nobody buys in its first 10 s gets 1+ SOL of buying later only 3% of the time, whether its dev
+  sells or holds 5 minutes. Selling sooner, into the sniper wave, made less too (−0.09 to −0.16). `npm run hold-check`.
 - **A dead launch** costs about 0.055 SOL at a 2 SOL bag (measured live on 2026-10-28: −0.003, −0.055, −0.056): the
   trading fees on the buy and sell, rent and two 0.005 SOL tips.
 - **Three dead in a row is routine** at a 1-in-3 hit rate (about 30% by chance). Playbook v4 pauses at 6.
