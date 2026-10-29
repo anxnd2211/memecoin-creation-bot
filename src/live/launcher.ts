@@ -186,7 +186,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   const state = async (): Promise<BoardState> => {
     const until = Date.now() + PENDING_WAIT_MS;
     for (;;) {
-      const s = boardState(d.db, post, draft.symbol, d.now(), { balanceLamports: await balance(), killed: d.killed() });
+      const s = boardState(d.db, post, draft.symbol, d.now(), { balanceLamports: await balance(), killed: d.killed(), wallet: d.venue.dev });
       if (!s.pendingLaunches || s.postLaunches) return s;
       if (Date.now() >= until) {
         // Still waiting on the observer: read those launches' metadata directly.
@@ -276,6 +276,7 @@ export async function runLaunch(d: LaunchDeps, post: PostInfo, draft: CoinDraft,
   recordPlan(d.db, {
     mint,
     mode: d.recordAs ?? d.venue.mode,
+    wallet: d.venue.dev,
     createdTs: d.now(),
     playbook: p,
     post,

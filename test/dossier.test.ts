@@ -9,7 +9,7 @@ test('a launch is recorded before it is sent and its result after the sell', () 
   const store = new Store(':memory:');
   const db: DatabaseSync = store.db;
   const post = { url: 'https://x.com/a/status/1', handle: 'a', postId: '1', postedAt: 100, authorName: null, text: null };
-  recordPlan(db, { mint: 'M', mode: 'fork', createdTs: 120, playbook: PLAYBOOK, post, narrative: 'a thing', postAgeSec: 20,
+  recordPlan(db, { mint: 'M', mode: 'fork', wallet: 'DevWallet', createdTs: 120, playbook: PLAYBOOK, post, narrative: 'a thing', postAgeSec: 20,
     firstOnPost: true, exitPlan: PLAYBOOK.exit.name, feedLagSec: 0.8 });
   const launch = { mint: 'M', signature: 's', slot: 1, landedAt: 0, devTokens: 1n, lamportsSpent: 5_062_500_000n,
     rentLamports: 9_000_000n, networkFeeLamports: 15_000n, simulated: true };
@@ -22,6 +22,7 @@ test('a launch is recorded before it is sent and its result after the sell', () 
   recordOutcome(db, 'M', outcome);
   const row = db.prepare('SELECT * FROM our_launches WHERE mint = ?').get('M') as Record<string, unknown>;
   assert.equal(row.mode, 'fork');
+  assert.equal(row.wallet, 'DevWallet');
   assert.equal(row.playbook, PLAYBOOK.version);
   assert.equal(row.drew, 1);
   assert.equal(row.first_sell_sec, 14.2);

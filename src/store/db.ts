@@ -96,7 +96,8 @@ CREATE TABLE IF NOT EXISTS our_launches (
   exit_plan TEXT NOT NULL, feed_lag_sec REAL,
   forecast_drew REAL, forecast_pnl REAL,
   pnl_sol REAL, drew INTEGER, first_sell_sec REAL,
-  notes TEXT
+  notes TEXT,
+  wallet TEXT                         -- the dev wallet that launched it: a wallet's record is its own
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS our_launches_created ON our_launches(created_ts);
 `;
@@ -142,6 +143,9 @@ export class Store {
     this.ensureColumn('coins', 'creator_fees_sol', 'REAL NOT NULL DEFAULT 0');
     this.ensureColumn('coins', 'launcher', 'TEXT');
     this.ensureColumn('trades', 'via_id', 'INTEGER');
+    this.ensureColumn('our_launches', 'wallet', 'TEXT');
+    // Launches recorded before the column existed: their coin's creator is the wallet that launched them.
+    this.db.exec('UPDATE our_launches SET wallet = (SELECT creator FROM coins WHERE coins.mint = our_launches.mint) WHERE wallet IS NULL');
     this.db.exec('CREATE INDEX IF NOT EXISTS coins_launcher ON coins(launcher, created_ts)');
     const p = (sql: string) => this.db.prepare(sql);
     this.s = {

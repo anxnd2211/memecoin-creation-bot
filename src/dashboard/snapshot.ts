@@ -119,9 +119,13 @@ export function buildSnapshot(db: DatabaseSync, x: Extras): Snapshot {
     const day = db
       .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(pnl_sol), 0) AS pnl FROM our_launches WHERE mode = 'live' AND created_ts >= ?`)
       .get(dayStart(now)) as { n: number; pnl: number };
+    const wallet = x.wallets[0]?.address ?? null;
     const recent = db
-      .prepare(`SELECT drew FROM our_launches WHERE mode = 'live' AND drew IS NOT NULL ORDER BY created_ts DESC LIMIT 20`)
-      .all() as { drew: number }[];
+      .prepare(
+        `SELECT drew FROM our_launches WHERE mode = 'live' AND drew IS NOT NULL AND (? IS NULL OR wallet = ?)
+         ORDER BY created_ts DESC LIMIT 20`,
+      )
+      .all(wallet, wallet) as { drew: number }[];
     let dead = 0;
     for (const r of recent) {
       if (r.drew) break;

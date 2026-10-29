@@ -17,6 +17,8 @@ export interface LaunchPlan {
   mint: string;
   /** The venue's mode, or a label such as 'smoke' that keeps test launches apart from real ones. */
   mode: Mode | 'smoke';
+  /** The dev wallet launching it: snipers judge a wallet by its own record, so the dead streak is counted per wallet. */
+  wallet: string;
   createdTs: number;
   playbook: Playbook;
   post: PostInfo;
@@ -31,8 +33,8 @@ export interface LaunchPlan {
 export function recordPlan(db: DatabaseSync, p: LaunchPlan): void {
   db.prepare(
     `INSERT OR REPLACE INTO our_launches (mint, mode, created_ts, playbook, narrative, source_post, post_age_sec,
-       first_on_post, dev_buy_sol, exit_plan, feed_lag_sec, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       first_on_post, dev_buy_sol, exit_plan, feed_lag_sec, notes, wallet)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     p.mint,
     p.mode,
@@ -46,6 +48,7 @@ export function recordPlan(db: DatabaseSync, p: LaunchPlan): void {
     p.exitPlan,
     p.feedLagSec,
     'planned',
+    p.wallet,
   );
 }
 

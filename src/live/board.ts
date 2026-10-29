@@ -177,7 +177,7 @@ export function boardState(
   post: PostInfo,
   symbol: string,
   now: number,
-  extra: { balanceLamports: bigint | null; killed: boolean },
+  extra: { balanceLamports: bigint | null; killed: boolean; wallet?: string },
 ): BoardState {
   const one = <T>(f: () => T): T | null => {
     try {
@@ -214,9 +214,14 @@ export function boardState(
       const today = db
         .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(pnl_sol), 0) AS pnl FROM our_launches WHERE mode = 'live' AND created_ts >= ?`)
         .get(dayStart(now)) as { n: number; pnl: number };
+      // The dead streak is the launching wallet's own (snipers judge a wallet by its record); the daily limits stay
+      // across wallets, as they protect the owner's money.
       const recent = db
-        .prepare(`SELECT drew FROM our_launches WHERE mode = 'live' AND drew IS NOT NULL ORDER BY created_ts DESC LIMIT 20`)
-        .all() as { drew: number }[];
+        .prepare(
+          `SELECT drew FROM our_launches WHERE mode = 'live' AND drew IS NOT NULL AND (? IS NULL OR wallet = ?)
+           ORDER BY created_ts DESC LIMIT 20`,
+        )
+        .all(extra.wallet ?? null, extra.wallet ?? null) as { drew: number }[];
       let dead = 0;
       for (const r of recent) {
         if (r.drew) break;

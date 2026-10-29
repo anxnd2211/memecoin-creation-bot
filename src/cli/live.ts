@@ -456,7 +456,7 @@ async function liveRun(): Promise<void> {
       const draft = buildDraft(post, { name: d.name, ticker: d.symbol, image: { bytes, mime, filename: `post.${mime.split('/')[1]}` } });
       // A silent first check, so posts that fail the board do not each send a message.
       const bal = await venue.balanceLamports().catch(() => null);
-      const pre = launchBoard({ playbook: playbookFor(bal), limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: bal, killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
+      const pre = launchBoard({ playbook: playbookFor(bal), limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: bal, killed: killed(), wallet: venue.dev }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
       // Launches made seconds ago may not have their metadata yet; the launch sequence waits for it, so only a post
       // already taken, or another gate, drops the candidate here.
       const blocking = pre.gates.filter((g) => !g.pass && !(g.name === 'first on the post' && g.detail.startsWith('0 launches')));
@@ -525,7 +525,7 @@ async function liveRun(): Promise<void> {
           const d = autoDraft(post.text) ?? { name: candidate.trigger.symbol.slice(0, 32), symbol: candidate.trigger.symbol.replace(/[^A-Za-z0-9]/g, '').slice(0, 10) || 'COIN', basis: 'the trigger launch' };
           const draft = buildDraft(post, { name: d.name, ticker: d.symbol, image: candidate.image });
           const bal = await venue.balanceLamports().catch(() => null);
-          const pre = launchBoard({ playbook: playbookFor(bal), limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: bal, killed: killed() }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
+          const pre = launchBoard({ playbook: playbookFor(bal), limits: deps.limits, post, draft, state: boardState(db, post, draft.symbol, now(), { balanceLamports: bal, killed: killed(), wallet: venue.dev }), compliance: checkCompliance(draft, post), preflight: null, approved: null }, 'before preflight');
           const blocking = pre.gates.filter((g) => !g.pass && !(g.name.includes('launches on the post') && /^[01] launches/.test(g.detail)));
           if (blocking.length) {
             log.info('not followed', { post: post.url, failedGates: blocking.map((g) => g.name).join(', ') });

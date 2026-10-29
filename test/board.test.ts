@@ -84,17 +84,17 @@ test('the board reads the observer database', () => {
   const db = new DatabaseSync(':memory:');
   db.exec(`CREATE TABLE coins (mint TEXT, symbol TEXT, quote TEXT, created_ts INTEGER, meta_status TEXT, twitter TEXT);
            CREATE TABLE trades (ts INTEGER);
-           CREATE TABLE our_launches (mint TEXT, mode TEXT, created_ts INTEGER, pnl_sol REAL, drew INTEGER);`);
+           CREATE TABLE our_launches (mint TEXT, mode TEXT, created_ts INTEGER, pnl_sol REAL, drew INTEGER, wallet TEXT);`);
   const coin = db.prepare('INSERT INTO coins VALUES (?, ?, ?, ?, ?, ?)');
   coin.run('a', 'THING', 'SOL', NOW - 100, 'done', `https://x.com/someone/status/${post.postId}`);
   coin.run('b', 'thing!', 'SOL', NOW - 50, 'done', 'https://x.com/someone/status/1');
   coin.run('c', 'OTHER', 'SOL', NOW - 5, 'none', null);
   coin.run('d', 'OTHER', 'SOL', NOW - 4000, 'done', 'https://x.com/someone/status/2');
   db.prepare('INSERT INTO trades VALUES (?)').run(NOW - 2);
-  const ours = db.prepare('INSERT INTO our_launches VALUES (?, ?, ?, ?, ?)');
-  ours.run('x', 'live', NOW - 7200, 1.5, 1);
-  ours.run('y', 'live', NOW - 3000, -0.1, 0);
-  ours.run('z', 'paper', NOW - 100, -0.1, 0);
+  const ours = db.prepare('INSERT INTO our_launches VALUES (?, ?, ?, ?, ?, ?)');
+  ours.run('x', 'live', NOW - 7200, 1.5, 1, 'old');
+  ours.run('y', 'live', NOW - 3000, -0.1, 0, 'old');
+  ours.run('z', 'paper', NOW - 100, -0.1, 0, 'old');
   const s = boardState(db, post, 'THING', NOW, { balanceLamports: 1n, killed: false });
   assert.equal(s.observerLastTradeTs, NOW - 2);
   assert.equal(s.postLaunches, 1);
@@ -103,6 +103,11 @@ test('the board reads the observer database', () => {
   assert.equal(s.tickerLaunchesLast10m, 2);
   assert.equal(s.ours!.lastLaunchTs, NOW - 3000);
   assert.equal(s.ours!.deadInARow, 1);
+  // A wallet's dead streak is its own; the daily limits count every wallet.
+  const fresh = boardState(db, post, 'THING', NOW, { balanceLamports: 1n, killed: false, wallet: 'new' });
+  assert.equal(fresh.ours!.deadInARow, 0);
+  assert.equal(fresh.ours!.lastLaunchTs, NOW - 3000);
+  assert.equal(boardState(db, post, 'THING', NOW, { balanceLamports: 1n, killed: false, wallet: 'old' }).ours!.deadInARow, 1);
   db.exec('ALTER TABLE coins ADD COLUMN unique_buyers INTEGER DEFAULT 0; ALTER TABLE coins ADD COLUMN early_buyers INTEGER DEFAULT 0;');
   db.exec("UPDATE coins SET unique_buyers = 20 WHERE mint = 'a'");
   assert.deepEqual(accountRecord(db, 'SomeOne'), { launches: 3, busy: 1, posts: 3 });
